@@ -2,7 +2,7 @@
 
 Aplicación ciudadana de Mapa Urbano, desarrollada con Kotlin y Jetpack Compose. Es uno de los tres repositorios del sistema:
 
-- backend común: Spring Boot + API REST;
+- backend común: KTOR + API REST;
 - frontend web: Angular;
 - frontend mobile: este repositorio.
 
