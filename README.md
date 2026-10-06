@@ -2,33 +2,39 @@
 
 Aplicación ciudadana de Mapa Urbano, desarrollada con Kotlin y Jetpack Compose. Es uno de los tres repositorios del sistema:
 
-- backend común: KTOR + API REST;
+- backend común: Ktor + API REST;
 - frontend web: Angular;
-- frontend mobile: este repositorio.
+- frontend móvil: este repositorio.
 
 La marca visible en la aplicación es **MuniReport**.
 
-## Estado inicial
+## Alcance implementado
 
-La base incluye:
+- Mapa ilustrado y vista de lista con el mismo conjunto de reportes.
+- Búsqueda y filtros combinables por estado y categoría.
+- Detalle público sin exponer la identidad del vecino.
+- Formulario con modalidades cuenta y anónima, borrador, ubicación y foto simuladas.
+- Confirmación con código opaco para reportes anónimos.
+- Seguimiento por código con historial de estados.
+- Inicio de sesión, registro, perfil y Mis reportes.
+- Estados de carga, vacío, error y validación.
+- Navegación inferior de cuatro destinos y retorno correcto desde autenticación.
+- Interfaz edge-to-edge con barra de navegación del sistema oculta de forma automática.
 
-- proyecto Android con AGP 9, Kotlin, Compose Material 3 y Navigation 3;
-- cuatro destinos principales: Mapa, Reportar, Mis reportes y Seguimiento;
-- navegación con una pila independiente por sección;
-- arquitectura inicial `UI → ViewModel → Repository`;
-- repositorio falso para ejecutar y demostrar la app sin backend;
-- edge-to-edge, soporte de teclado y tamaños táctiles Material 3;
-- pruebas unitarias y de navegación Compose;
-- workflow de CI para pruebas, lint y APK debug.
+La app usa un repositorio falso en memoria y todavía no consume el backend, un SDK de mapas, cámara ni GPS reales.
 
-El mapa, login, cámara, persistencia local y llamadas REST todavía no están implementados. Los botones correspondientes explicitan ese límite y no simulan operaciones exitosas.
+## Datos de demostración
+
+- Correo sugerido: `valeria@correo.com`
+- Contraseña: cualquier valor de al menos 4 caracteres para iniciar sesión.
+- Código de seguimiento existente: `7F2K-9B1M-4X3P`
 
 ## Requisitos
 
 - JDK 17;
 - Android SDK 36;
 - Android Studio compatible con AGP 9, o Android CLI;
-- dispositivo/emulador Android 8.0 (API 26) o superior.
+- dispositivo Android 8.0 (API 26) o superior.
 
 ## Verificación
 
@@ -36,26 +42,39 @@ El mapa, login, cámara, persistencia local y llamadas REST todavía no están i
 ./scripts/validate.sh
 ```
 
-El APK queda en `app/build/outputs/apk/debug/app-debug.apk`.
-La estrategia y los comandos individuales están en [`docs/testing.md`](docs/testing.md).
+La validación ejecuta pruebas unitarias, Android Lint, generación del APK debug y reporte JaCoCo. El APK queda en `app/build/outputs/apk/debug/app-debug.apk`.
+
+La interfaz también fue recorrida en un Redmi Note 13 Pro 5G físico. El emulador no formó parte de esta validación, por decisión del equipo.
 
 ## Estructura
 
 ```text
 app/src/main/java/com/mapaurbano/mobile/
-├── data/          # Repositorios y fuentes de datos
-├── model/         # Modelos usados por la aplicación
-├── navigation/    # Rutas, estado y navegador Navigation 3
-└── ui/            # Pantallas, componentes y tema
+├── MainActivity.kt
+├── MapaUrbanoApp.kt
+├── core/
+│   ├── data/          # Estado, contenido ficticio y repositorio
+│   ├── designsystem/  # Tema, color, tipografía y tokens
+│   ├── model/         # Modelos de presentación
+│   └── navigation/    # Destinos tipados
+└── feature/
+    ├── auth/
+    ├── common/
+    ├── map/
+    ├── myreports/
+    ├── report/
+    └── tracking/
 ```
+
+La dirección de dependencias se mantiene como `UI → ViewModel → Repository`. `FakeReportRepository` puede reemplazarse por una implementación REST cuando el contrato del backend esté versionado.
 
 ## Integración REST pendiente
 
-La implementación remota deberá reemplazar `FakeReportRepository` sin acoplar las pantallas al cliente HTTP. El contrato esperado conserva el prefijo `/api/v1` y, como mínimo, contempla:
+La futura implementación remota deberá conservar el prefijo `/api/v1` y contemplar, como mínimo:
 
 - `GET /reports` y `GET /reports/{id}`;
 - `POST /reports`;
 - `POST /report-status`;
 - registro, login, sesión y `GET /users/me/reports`.
 
-Antes de conectar estos servicios se debe publicar y versionar el contrato OpenAPI del backend Spring Boot.
+La estrategia y los comandos individuales están en [`docs/testing.md`](docs/testing.md).
