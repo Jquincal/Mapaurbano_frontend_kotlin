@@ -1,27 +1,46 @@
 package com.mapaurbano.mobile
 
-import android.os.Build
 import android.os.Bundle
+import android.os.Build
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import com.mapaurbano.mobile.data.AppContainer
-import com.mapaurbano.mobile.ui.theme.MapaUrbanoTheme
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import com.mapaurbano.mobile.core.data.AppContainer
+import com.mapaurbano.mobile.core.designsystem.MapaUrbanoTheme
 
 class MainActivity : ComponentActivity() {
-  private val appContainer = AppContainer()
-
-  override fun onCreate(savedInstanceState: Bundle?) {
-    super.onCreate(savedInstanceState)
-    enableEdgeToEdge()
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-      window.isNavigationBarContrastEnforced = false
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        AppContainer.initialize(applicationContext)
+        enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            window.isNavigationBarContrastEnforced = false
+        }
+        hidePhoneNavigationBar()
+        setContent {
+            MapaUrbanoTheme {
+                MapaUrbanoApp()
+            }
+        }
     }
 
-    setContent {
-      MapaUrbanoTheme {
-        MapaUrbanoApp(reportRepository = appContainer.reportRepository)
-      }
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hidePhoneNavigationBar()
     }
-  }
+
+    /**
+     * Mantiene oculta la navegación de Android y permite recuperarla temporalmente
+     * deslizando desde el borde inferior.
+     */
+    private fun hidePhoneNavigationBar() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.navigationBars())
+            systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
 }
