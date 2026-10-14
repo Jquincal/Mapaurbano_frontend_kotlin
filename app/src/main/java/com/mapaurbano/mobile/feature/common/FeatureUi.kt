@@ -81,6 +81,7 @@ fun ScrollableFeatureScreen(
     onBack: (() -> Unit)? = null,
     contentPadding: PaddingValues = PaddingValues(20.dp),
     scrollState: ScrollState? = null,
+    scrollEnabled: Boolean = true,
     topBarActions: @Composable () -> Unit = {},
     content: @Composable ColumnScope.() -> Unit,
 ) {
@@ -97,7 +98,7 @@ fun ScrollableFeatureScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
                 .imePadding()
-                .verticalScroll(resolvedScrollState)
+                .verticalScroll(resolvedScrollState, enabled = scrollEnabled)
                 .padding(contentPadding),
             verticalArrangement = Arrangement.spacedBy(16.dp),
             content = content,

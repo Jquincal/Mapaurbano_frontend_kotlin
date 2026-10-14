@@ -20,7 +20,7 @@ object DemoContent {
         Category("other", "Otros servicios", "more_horiz"),
     )
 
-    val user = User("demo-user", "Valeria Cifuentes", "valeria@correo.com")
+    val user = User("demo-user", "Valeria Cifuentes", "30123456")
 
     private fun category(id: String) = categories.first { it.id == id }
 

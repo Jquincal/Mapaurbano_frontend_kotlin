@@ -19,22 +19,35 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddLocationAlt
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.Map
+import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mapaurbano.mobile.core.designsystem.MuniColors
+import com.mapaurbano.mobile.core.location.LocationRequestResult
+import com.mapaurbano.mobile.core.location.errorMessageOrNull
+import com.mapaurbano.mobile.core.location.rememberLocationRequest
 import com.mapaurbano.mobile.core.model.Category
 import com.mapaurbano.mobile.core.model.ContentLoadState
 import com.mapaurbano.mobile.core.model.MapPresentation
@@ -45,9 +58,9 @@ import com.mapaurbano.mobile.feature.common.ContentState
 import com.mapaurbano.mobile.feature.common.ContentStatePanel
 import com.mapaurbano.mobile.feature.common.DefaultTopBarActions
 import com.mapaurbano.mobile.feature.common.FeatureTopBar
+import com.mapaurbano.mobile.feature.common.NoticeCard
 import com.mapaurbano.mobile.feature.common.StitchCard
 import com.mapaurbano.mobile.feature.common.StitchChip
-import com.mapaurbano.mobile.feature.common.StitchMiniMap
 import com.mapaurbano.mobile.feature.common.StitchReportCard
 import com.mapaurbano.mobile.feature.common.StitchSearchField
 import com.mapaurbano.mobile.feature.common.StitchStatusPill
@@ -60,6 +73,7 @@ fun MapScreen(
     presentation: MapPresentation,
     modifier: Modifier = Modifier,
     contentLoadState: ContentLoadState = ContentLoadState.Ready,
+    contentErrorMessage: String? = null,
     onQueryChange: (String) -> Unit,
     onPresentationChange: (MapPresentation) -> Unit,
     onStatusFilterChange: (ReportStatus?) -> Unit,
@@ -72,7 +86,6 @@ fun MapScreen(
     selectedReportId: String? = null,
     onProfile: () -> Unit = {},
     onNotifications: () -> Unit = {},
-    onLocate: () -> Unit = {},
 ) {
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -99,7 +112,9 @@ fun MapScreen(
             )
 
             ContentLoadState.Error -> ContentStatePanel(
-                state = ContentState.Error("Revisá tu conexión e intentá nuevamente."),
+                state = ContentState.Error(
+                    contentErrorMessage ?: "No pudimos cargar el mapa. Intentá nuevamente.",
+                ),
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(innerPadding)
@@ -121,7 +136,6 @@ fun MapScreen(
                 onReportSelect = onReportSelect,
                 onCreateReport = onCreateReport,
                 selectedReportId = selectedReportId,
-                onLocate = onLocate,
                 modifier = Modifier.padding(innerPadding),
             )
         }
@@ -143,14 +157,40 @@ private fun MapReadyContent(
     onReportSelect: (Report) -> Unit,
     onCreateReport: () -> Unit,
     selectedReportId: String?,
-    onLocate: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val selectedReport = reports.firstOrNull { it.id == selectedReportId } ?: reports.firstOrNull()
+    var cameraTarget by remember { mutableStateOf<com.mapaurbano.mobile.core.model.MapPoint?>(null) }
+    var userLocation by remember { mutableStateOf<com.mapaurbano.mobile.core.model.MapPoint?>(null) }
+    var mapMessage by remember { mutableStateOf<String?>(null) }
+    var mapInteractionActive by remember { mutableStateOf(false) }
+    val screenScrollState = rememberScrollState()
+    val locationRequest = rememberLocationRequest { result ->
+        when (result) {
+            is LocationRequestResult.Success -> {
+                userLocation = result.point
+                cameraTarget = result.point
+                mapMessage = null
+            }
+            else -> mapMessage = result.errorMessageOrNull()
+        }
+    }
     Column(
         modifier = modifier
             .fillMaxSize()
-            .verticalScroll(rememberScrollState())
+            .pointerInput(mapInteractionActive) {
+                if (mapInteractionActive) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            if (event.type == PointerEventType.Press) {
+                                mapInteractionActive = false
+                            }
+                        }
+                    }
+                }
+            }
+            .verticalScroll(screenScrollState, enabled = !mapInteractionActive)
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .padding(bottom = 12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
@@ -189,23 +229,36 @@ private fun MapReadyContent(
             onCategoryFilterChange = onCategoryFilterChange,
         )
 
-        if (reports.isEmpty()) {
-            EmptyMapResults(
-                onClearFilters = onClearFilters,
-                onCreateReport = onCreateReport,
-            )
-            return@Column
-        }
-
         if (presentation == MapPresentation.Map) {
             Box {
-                StitchMiniMap(
+                InteractiveMap(
                     reports = reports,
                     selectedReportId = selectedReportId,
                     onReportClick = onReportSelect,
-                    onLocate = onLocate,
-                    modifier = Modifier.height(430.dp),
+                    userLocation = userLocation,
+                    cameraTarget = cameraTarget,
+                    onLoadError = {
+                        mapMessage = "No se pudo cargar el mapa. Revisá la conexión e intentá nuevamente."
+                    },
+                    onInteractionChange = { mapInteractionActive = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(430.dp),
                 )
+                FilledTonalIconButton(
+                    onClick = locationRequest.request,
+                    enabled = !locationRequest.isLoading,
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 14.dp, bottom = 14.dp)
+                        .size(52.dp),
+                ) {
+                    if (locationRequest.isLoading) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                    } else {
+                        Icon(Icons.Rounded.MyLocation, contentDescription = "Centrar mapa")
+                    }
+                }
                 Button(
                     onClick = onCreateReport,
                     modifier = Modifier
@@ -221,20 +274,37 @@ private fun MapReadyContent(
                     Text("Reportar problema", style = MaterialTheme.typography.labelLarge)
                 }
             }
-            selectedReport?.let {
-                StitchMapSheet(report = it, onClick = { onReportClick(it) })
-            }
-            CivicStats(reports = reports)
-        } else {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(
-                    text = "${reports.size} reportes registrados",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.semantics { heading() },
+            mapMessage?.let { NoticeCard(it) }
+            if (reports.isEmpty()) {
+                EmptyMapResults(
+                    hasActiveFilters = filters.hasActiveFilters,
+                    onClearFilters = onClearFilters,
+                    onCreateReport = onCreateReport,
                 )
-                reports.forEach { report ->
-                    StitchReportCard(report = report, onClick = { onReportClick(report) })
+            } else {
+                selectedReport?.let {
+                    StitchMapSheet(report = it, onClick = { onReportClick(it) })
+                }
+                CivicStats(reports = reports)
+            }
+        } else {
+            if (reports.isEmpty()) {
+                EmptyMapResults(
+                    hasActiveFilters = filters.hasActiveFilters,
+                    onClearFilters = onClearFilters,
+                    onCreateReport = onCreateReport,
+                )
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = "${reports.size} reportes registrados",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    reports.forEach { report ->
+                        StitchReportCard(report = report, onClick = { onReportClick(report) })
+                    }
                 }
             }
         }
@@ -325,16 +395,36 @@ fun ReportStatusBadge(status: ReportStatus, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun EmptyMapResults(onClearFilters: () -> Unit, onCreateReport: () -> Unit) {
+private fun EmptyMapResults(
+    hasActiveFilters: Boolean,
+    onClearFilters: () -> Unit,
+    onCreateReport: () -> Unit,
+) {
     StitchCard(containerColor = MuniColors.SurfaceContainerLow) {
-        Text("No encontramos reportes", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-        Text("Probá cambiando la búsqueda o creando un nuevo reporte vecinal.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            if (hasActiveFilters) "No encontramos coincidencias" else "Todavía no hay reportes",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold,
+        )
+        Text(
+            if (hasActiveFilters) {
+                "Probá cambiando la búsqueda o limpiando los filtros."
+            } else {
+                "El mapa está listo. Podés crear el primer reporte vecinal."
+            },
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Button(onClick = onClearFilters, modifier = Modifier.weight(1f)) { Text("Limpiar") }
+            if (hasActiveFilters) {
+                Button(onClick = onClearFilters, modifier = Modifier.weight(1f)) { Text("Limpiar") }
+            }
             Button(onClick = onCreateReport, modifier = Modifier.weight(1f)) { Text("Reportar") }
         }
     }
 }
+
+private val ReportFilters.hasActiveFilters: Boolean
+    get() = query.isNotBlank() || status != null || categoryId != null
 
 private fun statusAccent(status: ReportStatus): Color = when (status) {
     ReportStatus.Pending -> MuniColors.Orange

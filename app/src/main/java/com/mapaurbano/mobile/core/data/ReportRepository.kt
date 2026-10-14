@@ -1,25 +1,54 @@
 package com.mapaurbano.mobile.core.data
 
+import com.mapaurbano.mobile.core.model.Category
 import com.mapaurbano.mobile.core.model.Report
 
 interface ReportRepository {
-    fun getReports(): List<Report>
+    val initialCategories: List<Category>
+    val initialReports: List<Report>
 
-    fun save(report: Report)
+    suspend fun getCategories(): List<Category>
+
+    suspend fun getPublicReports(categories: List<Category>): List<Report>
+
+    suspend fun getPublicReport(id: String, categories: List<Category>): Report
+
+    suspend fun getCurrentUserReports(userId: String, categories: List<Category>): List<Report>
+
+    suspend fun createReport(report: Report): Report
+
+    suspend fun getReportByTrackingCode(code: String, categories: List<Category>): Report
 }
 
-/**
- * Repositorio en memoria para desarrollar y demostrar la interfaz sin depender del backend.
- * Puede reemplazarse por una implementación REST sin acoplar las pantallas a la red.
- */
+/** Repositorio determinista para pruebas y vistas previas sin conexión. */
 class FakeReportRepository(
-    initialReports: List<Report> = DemoContent.reports,
+    reports: List<Report> = DemoContent.reports,
+    categories: List<Category> = DemoContent.categories,
 ) : ReportRepository {
-    private val reports = initialReports.toMutableList()
+    private val storedReports = reports.toMutableList()
 
-    override fun getReports(): List<Report> = reports.toList()
+    override val initialCategories: List<Category> = categories
+    override val initialReports: List<Report> = reports
 
-    override fun save(report: Report) {
-        reports.add(0, report)
+    override suspend fun getCategories(): List<Category> = initialCategories
+
+    override suspend fun getPublicReports(categories: List<Category>): List<Report> = storedReports.toList()
+
+    override suspend fun getPublicReport(id: String, categories: List<Category>): Report =
+        storedReports.first { it.id == id }
+
+    override suspend fun getCurrentUserReports(userId: String, categories: List<Category>): List<Report> =
+        storedReports.filter { it.ownerId == userId }
+
+    override suspend fun createReport(report: Report): Report {
+        storedReports.add(0, report)
+        return report
+    }
+
+    override suspend fun getReportByTrackingCode(code: String, categories: List<Category>): Report {
+        val normalized = code.filter(Char::isLetterOrDigit).uppercase()
+        return storedReports.first {
+            it.trackingCode?.filter(Char::isLetterOrDigit)?.uppercase() == normalized
+        }
     }
 }

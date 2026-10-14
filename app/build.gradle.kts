@@ -1,8 +1,22 @@
 import org.gradle.testing.jacoco.tasks.JacocoReport
+import java.util.Properties
+
+val localProperties = Properties().apply {
+  val localPropertiesFile = rootProject.file("local.properties")
+  if (localPropertiesFile.exists()) {
+    localPropertiesFile.inputStream().use(::load)
+  }
+}
+
+val apiBaseUrl = providers.gradleProperty("MAPA_URBANO_API_BASE_URL")
+  .orElse(localProperties.getProperty("MAPA_URBANO_API_BASE_URL") ?: "http://10.0.2.2:8080/api/v1/")
+  .get()
+  .trimEnd('/') + "/"
 
 plugins {
   alias(libs.plugins.android.application)
   alias(libs.plugins.compose.compiler)
+  alias(libs.plugins.kotlin.serialization)
   jacoco
 }
 
@@ -16,6 +30,7 @@ android {
         versionCode = 1
         versionName = "1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+        buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
     }
 
     buildTypes {
@@ -31,7 +46,7 @@ android {
     buildFeatures {
       compose = true
       aidl = false
-      buildConfig = false
+      buildConfig = true
       shaders = false
     }
 
@@ -55,6 +70,9 @@ dependencies {
   implementation(libs.androidx.core.ktx)
   implementation(libs.androidx.lifecycle.runtime.ktx)
   implementation(libs.androidx.activity.compose)
+  implementation(libs.androidx.datastore.preferences)
+  implementation(libs.maplibre.android)
+  implementation(libs.play.services.location)
 
   // Arch Components
   implementation(libs.androidx.lifecycle.runtime.compose)
@@ -76,6 +94,10 @@ dependencies {
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   implementation(libs.kotlinx.coroutines.android)
+  implementation(libs.ktor.client.core)
+  implementation(libs.ktor.client.okhttp)
+  implementation(libs.ktor.client.content.negotiation)
+  implementation(libs.ktor.serialization.kotlinx.json)
 
   // Instrumented tests: jUnit rules and runners
   androidTestImplementation(libs.androidx.test.core)

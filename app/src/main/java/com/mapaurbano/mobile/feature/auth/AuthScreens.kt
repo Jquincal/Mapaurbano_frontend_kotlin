@@ -16,7 +16,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Badge
 import androidx.compose.material.icons.rounded.AccountBox
-import androidx.compose.material.icons.rounded.Email
 import androidx.compose.material.icons.rounded.Fingerprint
 import androidx.compose.material.icons.rounded.Groups
 import androidx.compose.material.icons.rounded.History
@@ -56,11 +55,12 @@ import com.mapaurbano.mobile.feature.common.StitchPrimaryButton
 
 @Composable
 fun LoginScreen(
-    email: String,
+    dni: String,
     password: String,
     modifier: Modifier = Modifier,
     message: String? = null,
-    onEmailChange: (String) -> Unit,
+    isAuthenticating: Boolean = false,
+    onDniChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
     onRegister: () -> Unit,
@@ -72,7 +72,14 @@ fun LoginScreen(
         AuthHero("Bienvenido a MuniReport", "Ingresá para guardar reportes y seguir su avance.")
         message?.let { AuthNotice(it) }
         StitchCard {
-            AuthField(email, onEmailChange, "Correo electrónico", Icons.Rounded.Email, ContentType.EmailAddress)
+            AuthField(
+                dni,
+                onDniChange,
+                "DNI",
+                Icons.Rounded.Badge,
+                ContentType.Username,
+                keyboardType = KeyboardType.Number,
+            )
             AuthField(
                 value = password,
                 onValueChange = onPasswordChange,
@@ -87,7 +94,11 @@ fun LoginScreen(
                 Text("Recordarme", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
                 TextButton(onClick = onForgotPassword) { Text("Olvidé mi contraseña") }
             }
-            StitchPrimaryButton(text = "Ingresar", onClick = onLogin, enabled = email.isNotBlank() && password.isNotBlank())
+            StitchPrimaryButton(
+                text = if (isAuthenticating) "Ingresando…" else "Ingresar",
+                onClick = onLogin,
+                enabled = dni.isNotBlank() && password.isNotBlank() && !isAuthenticating,
+            )
             Row(verticalAlignment = Alignment.CenterVertically) {
                 HorizontalDivider(modifier = Modifier.weight(1f))
                 Text("  o continúa con  ", style = MaterialTheme.typography.labelSmall, color = MuniColors.OnSurfaceVariant)
@@ -119,13 +130,14 @@ fun LoginScreen(
 @Composable
 fun RegisterScreen(
     displayName: String,
-    email: String,
+    dni: String,
     password: String,
     confirmPassword: String,
     modifier: Modifier = Modifier,
     message: String? = null,
+    isAuthenticating: Boolean = false,
     onDisplayNameChange: (String) -> Unit,
-    onEmailChange: (String) -> Unit,
+    onDniChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onConfirmPasswordChange: (String) -> Unit,
     onRegister: () -> Unit,
@@ -152,7 +164,14 @@ fun RegisterScreen(
         message?.let { AuthNotice(it) }
         StitchCard {
             AuthField(displayName, onDisplayNameChange, "Nombre y apellido", Icons.Rounded.Person, ContentType.PersonFullName)
-            AuthField(email, onEmailChange, "Correo electrónico", Icons.Rounded.Email, ContentType.EmailAddress)
+            AuthField(
+                dni,
+                onDniChange,
+                "DNI",
+                Icons.Rounded.Badge,
+                ContentType.Username,
+                keyboardType = KeyboardType.Number,
+            )
             AuthField(password, onPasswordChange, "Contraseña", Icons.Rounded.Lock, ContentType.NewPassword, password = true)
             AuthField(
                 confirmPassword,
@@ -163,13 +182,12 @@ fun RegisterScreen(
                 password = true,
                 isError = passwordsDiffer,
             )
-            UnavailableIdentityField("DNI / Identificador cívico")
             UnavailableIdentityField("Distrito de residencia")
         }
         StitchPrimaryButton(
-            text = "Crear mi cuenta ciudadana",
+            text = if (isAuthenticating) "Creando cuenta…" else "Crear mi cuenta ciudadana",
             onClick = onRegister,
-            enabled = displayName.isNotBlank() && email.isNotBlank() && password.length >= 8 && password == confirmPassword,
+            enabled = displayName.isNotBlank() && dni.isNotBlank() && password.length >= 8 && password == confirmPassword && !isAuthenticating,
         )
     }
 }
@@ -204,8 +222,8 @@ fun ProfileScreen(
                 Icon(Icons.Rounded.Person, contentDescription = "Foto de perfil", tint = MuniColors.Primary, modifier = Modifier.size(48.dp))
             }
             Text(user.displayName, style = androidx.compose.material3.MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-            Text(user.email, color = MuniColors.OnSurfaceVariant)
-            Text("Cuenta Ciudadana Demo", modifier = Modifier.background(MuniColors.SurfaceContainer, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp))
+            Text("DNI ${user.dni}", color = MuniColors.OnSurfaceVariant)
+            Text("Cuenta ciudadana", modifier = Modifier.background(MuniColors.SurfaceContainer, RoundedCornerShape(50)).padding(horizontal = 10.dp, vertical = 4.dp))
         }
         message?.let { AuthNotice(it) }
         Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -258,6 +276,7 @@ private fun AuthField(
     contentType: ContentType,
     password: Boolean = false,
     isError: Boolean = false,
+    keyboardType: KeyboardType = KeyboardType.Text,
     keyboardActions: KeyboardActions = KeyboardActions.Default,
 ) {
     OutlinedTextField(
@@ -270,7 +289,7 @@ private fun AuthField(
         isError = isError,
         visualTransformation = if (password) PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
         keyboardOptions = KeyboardOptions(
-            keyboardType = if (contentType == ContentType.EmailAddress) KeyboardType.Email else KeyboardType.Text,
+            keyboardType = if (password) KeyboardType.Password else keyboardType,
             imeAction = ImeAction.Next,
         ),
         keyboardActions = keyboardActions,

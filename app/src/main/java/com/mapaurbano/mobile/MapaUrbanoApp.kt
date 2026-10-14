@@ -78,7 +78,7 @@ fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
     val context = LocalContext.current
     val clipboard = LocalClipboardManager.current
 
-    var email by rememberSaveable { mutableStateOf("valeria@correo.com") }
+    var dni by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var displayName by rememberSaveable { mutableStateOf("") }
     var confirmPassword by remember { mutableStateOf("") }
@@ -126,12 +126,12 @@ fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
             DestinationContent(
                 state = state,
                 viewModel = appViewModel,
-                email = email,
+                dni = dni,
                 password = password,
                 displayName = displayName,
                 confirmPassword = confirmPassword,
-                onEmailChange = {
-                    email = it
+                onDniChange = {
+                    dni = it
                     appViewModel.clearAuthError()
                 },
                 onPasswordChange = {
@@ -195,11 +195,11 @@ fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
 private fun DestinationContent(
     state: AppUiState,
     viewModel: AppViewModel,
-    email: String,
+    dni: String,
     password: String,
     displayName: String,
     confirmPassword: String,
-    onEmailChange: (String) -> Unit,
+    onDniChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onDisplayNameChange: (String) -> Unit,
     onConfirmPasswordChange: (String) -> Unit,
@@ -215,6 +215,7 @@ private fun DestinationContent(
             filters = state.mapFilters,
             presentation = state.mapPresentation,
             contentLoadState = state.contentLoadState,
+            contentErrorMessage = state.contentLoadError,
             onQueryChange = viewModel::setQuery,
             onPresentationChange = viewModel::setMapPresentation,
             onStatusFilterChange = viewModel::setStatusFilter,
@@ -228,9 +229,6 @@ private fun DestinationContent(
             onProfile = { viewModel.navigate(AppDestination.Profile) },
             onNotifications = {
                 viewModel.showDialog(AppDialog.FutureFeature("Notificaciones"))
-            },
-            onLocate = {
-                viewModel.notify("Ubicación centrada en Plaza Central.")
             },
         )
 
@@ -256,7 +254,9 @@ private fun DestinationContent(
             contentState = when (state.myReportsLoadState) {
                 ContentLoadState.Ready -> ContentState.Ready
                 ContentLoadState.Loading -> ContentState.Loading
-                ContentLoadState.Error -> ContentState.Error("Revisá tu conexión e intentá nuevamente.")
+                ContentLoadState.Error -> ContentState.Error(
+                    state.myReportsLoadError ?: "No pudimos cargar tus reportes.",
+                )
             },
             onQueryChange = viewModel::setMyReportsQuery,
             onStatusFilterChange = viewModel::setMyReportsStatus,
@@ -300,12 +300,13 @@ private fun DestinationContent(
         }
 
         is AppDestination.Login -> LoginScreen(
-            email = email,
+            dni = dni,
             password = password,
             message = state.authError,
-            onEmailChange = onEmailChange,
+            isAuthenticating = state.isAuthenticating,
+            onDniChange = onDniChange,
             onPasswordChange = onPasswordChange,
-            onLogin = { viewModel.login(email, password) },
+            onLogin = { viewModel.login(dni, password) },
             onRegister = {
                 onClearSecrets()
                 viewModel.navigate(AppDestination.Register(destination.returnTo))
@@ -322,17 +323,18 @@ private fun DestinationContent(
 
         is AppDestination.Register -> RegisterScreen(
             displayName = displayName,
-            email = email,
+            dni = dni,
             password = password,
             confirmPassword = confirmPassword,
             message = state.authError,
+            isAuthenticating = state.isAuthenticating,
             onDisplayNameChange = onDisplayNameChange,
-            onEmailChange = onEmailChange,
+            onDniChange = onDniChange,
             onPasswordChange = onPasswordChange,
             onConfirmPasswordChange = onConfirmPasswordChange,
             onRegister = {
                 if (password == confirmPassword) {
-                    viewModel.register(displayName, email, password)
+                    viewModel.register(displayName, dni, password)
                 } else {
                     viewModel.notify("Las contraseñas no coinciden.")
                 }

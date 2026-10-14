@@ -15,6 +15,7 @@ data class Category(
     val id: String,
     val label: String,
     val icon: String,
+    val slug: String = id,
 )
 
 data class MapPoint(
@@ -28,7 +29,7 @@ data class MapPoint(
 data class User(
     val id: String,
     val displayName: String,
-    val email: String,
+    val dni: String,
 )
 
 data class Report(

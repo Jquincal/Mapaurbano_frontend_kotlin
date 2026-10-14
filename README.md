@@ -10,24 +10,25 @@ La marca visible en la aplicación es **MuniReport**.
 
 ## Alcance implementado
 
-- Mapa ilustrado y vista de lista con el mismo conjunto de reportes.
+- Mapa interactivo OpenFreeMap/MapLibre y vista de lista alimentados por los reportes públicos del backend.
 - Búsqueda y filtros combinables por estado y categoría.
 - Detalle público sin exponer la identidad del vecino.
-- Formulario con modalidades cuenta y anónima, borrador, ubicación y foto simuladas.
+- Formulario conectado al backend, con borrador, ubicación manual o GPS; la foto continúa simulada.
 - Confirmación con código opaco para reportes anónimos.
-- Seguimiento por código con historial de estados.
-- Inicio de sesión, registro, perfil y Mis reportes.
+- Seguimiento real por código y detalle público.
+- Registro e inicio de sesión reales por DNI, con recuperación y cierre de sesión mediante token bearer.
+- Creación de reportes asociados a la cuenta, perfil, desactivación y listado de Mis reportes conectados al backend.
 - Estados de carga, vacío, error y validación.
 - Navegación inferior de cuatro destinos y retorno correcto desde autenticación.
 - Interfaz edge-to-edge con barra de navegación del sistema oculta de forma automática.
 
-La app usa un repositorio falso en memoria y todavía no consume el backend, un SDK de mapas, cámara ni GPS reales.
+La app consume la API Ktor de `MapaUrbano-backend-ktor`. El mapa usa MapLibre Native con el estilo Liberty de OpenFreeMap y permite gestos, selección manual y centrado mediante el GPS del dispositivo. La cámara y el envío de fotografías reales continúan pendientes.
 
-## Datos de demostración
+## Datos de prueba
 
-- Correo sugerido: `valeria@correo.com`
-- Contraseña: cualquier valor de al menos 4 caracteres para iniciar sesión.
-- Código de seguimiento existente: `7F2K-9B1M-4X3P`
+- Para crear una cuenta se requiere nombre, DNI argentino de 7 u 8 dígitos y contraseña de al menos 8 caracteres.
+- El DNI puede escribirse con o sin puntos; se envía como texto para conservar posibles ceros iniciales.
+- El código de seguimiento depende de los reportes anónimos existentes en la base conectada.
 
 ## Requisitos
 
@@ -35,6 +36,16 @@ La app usa un repositorio falso en memoria y todavía no consume el backend, un 
 - Android SDK 36;
 - Android Studio compatible con AGP 9, o Android CLI;
 - dispositivo Android 8.0 (API 26) o superior.
+
+## Conexión con el backend
+
+La URL se define con la propiedad `MAPA_URBANO_API_BASE_URL`. Para un teléfono físico conectado a la misma red que la computadora, agregala en `local.properties` (archivo local, ignorado por Git):
+
+```properties
+MAPA_URBANO_API_BASE_URL=http://IP_DE_LA_COMPUTADORA:8080/api/v1/
+```
+
+El valor predeterminado es `http://10.0.2.2:8080/api/v1/`, útil solamente para un emulador. El backend debe estar escuchando en `0.0.0.0:8080` y el teléfono debe poder acceder a ese puerto.
 
 ## Verificación
 
@@ -53,9 +64,10 @@ app/src/main/java/com/mapaurbano/mobile/
 ├── MainActivity.kt
 ├── MapaUrbanoApp.kt
 ├── core/
-│   ├── data/          # Estado, contenido ficticio y repositorio
+│   ├── data/          # Estado y repositorios remoto/falso
 │   ├── designsystem/  # Tema, color, tipografía y tokens
 │   ├── model/         # Modelos de presentación
+│   ├── network/       # Cliente Ktor y contrato de la API
 │   └── navigation/    # Destinos tipados
 └── feature/
     ├── auth/
@@ -66,15 +78,21 @@ app/src/main/java/com/mapaurbano/mobile/
     └── tracking/
 ```
 
-La dirección de dependencias se mantiene como `UI → ViewModel → Repository`. `FakeReportRepository` puede reemplazarse por una implementación REST cuando el contrato del backend esté versionado.
+La dirección de dependencias se mantiene como `UI → ViewModel → Repository`. La aplicación usa `RemoteReportRepository`; `FakeReportRepository` queda reservado para pruebas y vistas sin red.
 
-## Integración REST pendiente
+## Estado de la integración REST
 
-La futura implementación remota deberá conservar el prefijo `/api/v1` y contemplar, como mínimo:
+Ya están conectados:
 
+- `GET /categories`;
 - `GET /reports` y `GET /reports/{id}`;
-- `POST /reports`;
+- `POST /reports` para reportes anónimos o asociados a una cuenta;
 - `POST /report-status`;
-- registro, login, sesión y `GET /users/me/reports`.
+- registro, login, perfil, logout y desactivación bajo `/users`;
+- `GET /users/me/reports` para Mis reportes.
+
+El envío real de imágenes y el detalle privado de un reporte continúan pendientes del backend. El detalle técnico y la matriz de endpoints están en [`docs/backend-integration.md`](docs/backend-integration.md).
 
 La estrategia y los comandos individuales están en [`docs/testing.md`](docs/testing.md).
+
+Los problemas detectados durante las pruebas en dispositivo y sus responsables están registrados en [`docs/proximas-correcciones.md`](docs/proximas-correcciones.md).

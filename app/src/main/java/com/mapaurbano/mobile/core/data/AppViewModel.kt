@@ -14,12 +14,13 @@ import com.mapaurbano.mobile.core.model.ReportStatus
 import com.mapaurbano.mobile.core.model.StatusEvent
 import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.core.model.User
+import com.mapaurbano.mobile.core.network.ApiException
 import com.mapaurbano.mobile.core.navigation.AppDestination
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 sealed interface AppDialog {
@@ -47,8 +48,11 @@ data class AppUiState(
     val trackingError: String? = null,
     val isTracking: Boolean = false,
     val contentLoadState: ContentLoadState = ContentLoadState.Ready,
+    val contentLoadError: String? = null,
     val myReportsLoadState: ContentLoadState = ContentLoadState.Ready,
+    val myReportsLoadError: String? = null,
     val isSubmitting: Boolean = false,
+    val isAuthenticating: Boolean = false,
     val failNextSubmission: Boolean = false,
     val formError: String? = null,
     val authError: String? = null,
@@ -78,11 +82,27 @@ data class AppUiState(
 }
 
 class AppViewModel(
-    private val reportRepository: ReportRepository = FakeReportRepository(),
+    private val reportRepository: ReportRepository = AppContainer.reportRepository,
+    private val authRepository: AuthRepository = AppContainer.authRepository,
 ) : ViewModel() {
-    private val _uiState = MutableStateFlow(AppUiState(reports = reportRepository.getReports()))
+    private val _uiState = MutableStateFlow(
+        AppUiState(
+            reports = reportRepository.initialReports,
+            categories = reportRepository.initialCategories,
+            contentLoadState = if (reportRepository.initialCategories.isEmpty()) {
+                ContentLoadState.Loading
+            } else {
+                ContentLoadState.Ready
+            },
+        ),
+    )
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
     private var submissionGeneration = 0L
+
+    init {
+        refreshPublicContent()
+        restoreSession()
+    }
 
     fun navigate(destination: AppDestination, replace: Boolean = false) {
         val state = _uiState.value
@@ -123,6 +143,12 @@ class AppViewModel(
                 authError = null,
                 selectedReportId = if (destination == AppDestination.Map) null else it.selectedReportId,
             )
+        }
+        if (destination is AppDestination.ReportDetail) {
+            refreshReportDetail(destination.reportId)
+        }
+        if (destination == AppDestination.MyReports) {
+            refreshMyReports()
         }
     }
 
@@ -211,7 +237,6 @@ class AppViewModel(
         val submissionId = ++submissionGeneration
         _uiState.update { it.copy(isSubmitting = true, formError = null) }
         viewModelScope.launch {
-            delay(650)
             if (submissionId != submissionGeneration) return@launch
             val latest = _uiState.value
             if (latest.failNextSubmission) {
@@ -259,38 +284,96 @@ class AppViewModel(
                     ),
                 ),
             )
-            reportRepository.save(report)
-            _uiState.update {
-                it.copy(
-                    reports = listOf(report) + it.reports,
-                    createdReportId = report.id,
-                    draft = ReportDraft(),
-                    destination = AppDestination.Confirmation(report.id),
-                    backStack = emptyList(),
-                    isSubmitting = false,
-                    dialog = null,
-                    message = null,
-                )
+            try {
+                val createdReport = reportRepository.createReport(report)
+                if (submissionId != submissionGeneration) return@launch
+                _uiState.update {
+                    it.copy(
+                        reports = listOf(createdReport) + it.reports.filterNot { current -> current.id == createdReport.id },
+                        createdReportId = createdReport.id,
+                        draft = ReportDraft(),
+                        destination = AppDestination.Confirmation(createdReport.id),
+                        backStack = emptyList(),
+                        isSubmitting = false,
+                        dialog = null,
+                        message = null,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (submissionId == submissionGeneration) {
+                    if (submittedDraft.submissionMode == SubmissionMode.Account && error.isUnauthorized()) {
+                        _uiState.update {
+                            it.copy(
+                                user = null,
+                                destination = AppDestination.Login(AppDestination.CreateReport),
+                                backStack = emptyList(),
+                                isSubmitting = false,
+                                authError = "La sesión venció. Iniciá sesión nuevamente; el borrador se conservó.",
+                            )
+                        }
+                    } else {
+                        _uiState.update {
+                            it.copy(
+                                isSubmitting = false,
+                                formError = error.userFacingMessage(
+                                    "No pudimos enviar el reporte. El borrador sigue guardado.",
+                                ),
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 
-    fun login(email: String, password: String) {
-        if (!email.contains('@') || password.length < 4) {
-            _uiState.update { it.copy(authError = "Revisá el correo y la contraseña.") }
+    fun login(dni: String, password: String) {
+        if (!dni.hasValidDniFormat() || password.isBlank() || password.toByteArray().size > 72) {
+            _uiState.update { it.copy(authError = "Revisá el DNI y la contraseña.") }
             return
         }
-        finishAuthentication(DemoContent.user.copy(email = email.trim()))
+        if (_uiState.value.isAuthenticating) return
+        _uiState.update { it.copy(isAuthenticating = true, authError = null) }
+        viewModelScope.launch {
+            try {
+                finishAuthentication(authRepository.login(dni.trim(), password))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isAuthenticating = false,
+                        authError = error.userFacingMessage("No pudimos iniciar sesión."),
+                    )
+                }
+            }
+        }
     }
 
-    fun register(displayName: String, email: String, password: String) {
-        if (displayName.isBlank() || !email.contains('@') || password.length < 8) {
+    fun register(displayName: String, dni: String, password: String) {
+        if (displayName.isBlank() || !dni.hasValidDniFormat() || password.length < 8 || password.toByteArray().size > 72) {
             _uiState.update {
-                it.copy(authError = "Ingresá un nombre, un correo válido y una contraseña de 8 caracteres.")
+                it.copy(authError = "Ingresá un nombre, un DNI válido y una contraseña de al menos 8 caracteres.")
             }
             return
         }
-        finishAuthentication(User("demo-user", displayName.trim(), email.trim()))
+        if (_uiState.value.isAuthenticating) return
+        _uiState.update { it.copy(isAuthenticating = true, authError = null) }
+        viewModelScope.launch {
+            try {
+                finishAuthentication(authRepository.register(displayName.trim(), dni.trim(), password))
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isAuthenticating = false,
+                        authError = error.userFacingMessage("No pudimos crear la cuenta."),
+                    )
+                }
+            }
+        }
     }
 
     private fun finishAuthentication(user: User) {
@@ -307,12 +390,23 @@ class AppViewModel(
                 backStack = emptyList(),
                 message = "Sesión iniciada.",
                 authError = null,
+                isAuthenticating = false,
             )
         }
+        refreshMyReports()
     }
 
     fun logout() {
+        if (_uiState.value.isAuthenticating) return
         submissionGeneration++
+        _uiState.update { it.copy(isAuthenticating = true) }
+        viewModelScope.launch {
+            runCatching { authRepository.logout() }
+            clearLocalSession("Sesión cerrada.")
+        }
+    }
+
+    private fun clearLocalSession(message: String) {
         _uiState.update {
             it.copy(
                 user = null,
@@ -323,7 +417,8 @@ class AppViewModel(
                 authError = null,
                 formError = null,
                 isSubmitting = false,
-                message = "Sesión cerrada.",
+                isAuthenticating = false,
+                message = message,
                 dialog = null,
             )
         }
@@ -337,20 +432,44 @@ class AppViewModel(
         if (_uiState.value.isTracking) return
         _uiState.update { it.copy(isTracking = true, trackingError = null, trackedReportId = null) }
         viewModelScope.launch {
-            delay(450)
-            val current = _uiState.value
-            val query = normalizeCode(current.trackingQuery)
-            val report = current.reports.firstOrNull {
-                it.trackingCode != null && normalizeCode(it.trackingCode) == query
-            }
-            _uiState.update {
-                it.copy(
-                    isTracking = false,
-                    trackedReportId = report?.id,
-                    trackingError = if (report == null) {
-                        "No pudimos consultar ese código. Revisalo e intentá nuevamente."
-                    } else null,
+            try {
+                val current = _uiState.value
+                val tracked = reportRepository.getReportByTrackingCode(
+                    code = current.trackingQuery.trim(),
+                    categories = current.categories,
                 )
+                val existing = current.report(tracked.id)
+                val merged = if (existing == null) {
+                    tracked
+                } else {
+                    tracked.copy(
+                        title = existing.title,
+                        description = existing.description,
+                        category = existing.category,
+                        location = existing.location,
+                        point = existing.point,
+                        hasPhoto = existing.hasPhoto || tracked.hasPhoto,
+                    )
+                }
+                _uiState.update {
+                    it.copy(
+                        reports = listOf(merged) + it.reports.filterNot { report -> report.id == merged.id },
+                        isTracking = false,
+                        trackedReportId = merged.id,
+                        trackingError = null,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isTracking = false,
+                        trackingError = error.userFacingMessage(
+                            "No pudimos consultar ese código. Revisalo e intentá nuevamente.",
+                        ),
+                    )
+                }
             }
         }
     }
@@ -366,27 +485,16 @@ class AppViewModel(
     fun simulateContentError() = _uiState.update {
         it.copy(
             contentLoadState = ContentLoadState.Error,
+            contentLoadError = "No pudimos conectar con el servidor.",
             myReportsLoadState = ContentLoadState.Error,
+            myReportsLoadError = "No pudimos conectar con el servidor.",
             dialog = null,
         )
     }
 
     fun retryContent() {
-        _uiState.update {
-            it.copy(
-                contentLoadState = ContentLoadState.Loading,
-                myReportsLoadState = ContentLoadState.Loading,
-            )
-        }
-        viewModelScope.launch {
-            delay(650)
-            _uiState.update {
-                it.copy(
-                    contentLoadState = ContentLoadState.Ready,
-                    myReportsLoadState = ContentLoadState.Ready,
-                )
-            }
-        }
+        refreshPublicContent()
+        refreshMyReports()
     }
 
     fun failNextSubmission() = _uiState.update {
@@ -434,6 +542,131 @@ class AppViewModel(
         }
     }
 
+    private fun refreshPublicContent() {
+        _uiState.update {
+            it.copy(
+                contentLoadState = ContentLoadState.Loading,
+                contentLoadError = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val categories = reportRepository.getCategories()
+                val reports = reportRepository.getPublicReports(categories)
+                _uiState.update {
+                    val accountReports = it.reports.filter { report -> report.ownerId != null }
+                    it.copy(
+                        categories = categories,
+                        reports = accountReports + reports.filterNot { publicReport ->
+                            accountReports.any { account -> account.id == publicReport.id }
+                        },
+                        contentLoadState = ContentLoadState.Ready,
+                        contentLoadError = null,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        contentLoadState = ContentLoadState.Error,
+                        contentLoadError = error.userFacingMessage("No pudimos cargar el mapa."),
+                    )
+                }
+            }
+        }
+    }
+
+    private fun restoreSession() {
+        viewModelScope.launch {
+            try {
+                val restoredUser = authRepository.restoreSession() ?: return@launch
+                _uiState.update { it.copy(user = restoredUser) }
+                refreshMyReports()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                // Se conserva el token para reintentar cuando vuelva la conexión.
+            }
+        }
+    }
+
+    private fun refreshMyReports() {
+        val user = _uiState.value.user ?: return
+        _uiState.update {
+            it.copy(
+                myReportsLoadState = ContentLoadState.Loading,
+                myReportsLoadError = null,
+            )
+        }
+        viewModelScope.launch {
+            try {
+                val current = _uiState.value
+                val reports = reportRepository.getCurrentUserReports(user.id, current.categories)
+                _uiState.update {
+                    val foreignOrPublicReports = it.reports.filter { report -> report.ownerId != user.id }
+                    it.copy(
+                        reports = reports + foreignOrPublicReports.filterNot { existing ->
+                            reports.any { owned -> owned.id == existing.id }
+                        },
+                        myReportsLoadState = ContentLoadState.Ready,
+                        myReportsLoadError = null,
+                    )
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                if (error.isUnauthorized()) {
+                    _uiState.update {
+                        it.copy(
+                            user = null,
+                            destination = AppDestination.Login(AppDestination.MyReports),
+                            backStack = emptyList(),
+                            myReportsLoadState = ContentLoadState.Ready,
+                            myReportsLoadError = null,
+                            authError = "La sesión venció. Iniciá sesión nuevamente.",
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            myReportsLoadState = ContentLoadState.Error,
+                            myReportsLoadError = error.userFacingMessage("No pudimos cargar tus reportes."),
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private fun refreshReportDetail(reportId: String) {
+        viewModelScope.launch {
+            try {
+                val current = _uiState.value
+                val detail = reportRepository.getPublicReport(reportId, current.categories)
+                val existing = current.report(reportId)
+                val merged = if (existing == null) {
+                    detail
+                } else {
+                    detail.copy(
+                        submissionMode = existing.submissionMode,
+                        ownerId = existing.ownerId,
+                        trackingCode = existing.trackingCode,
+                    )
+                }
+                _uiState.update {
+                    it.copy(reports = it.reports.map { report -> if (report.id == reportId) merged else report })
+                }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(message = error.userFacingMessage("No pudimos actualizar el detalle del reporte."))
+                }
+            }
+        }
+    }
+
     fun showDialog(dialog: AppDialog) = _uiState.update { it.copy(dialog = dialog) }
     fun dismissDialog() = _uiState.update { it.copy(dialog = null) }
     fun consumeMessage() = _uiState.update { it.copy(message = null) }
@@ -464,22 +697,25 @@ class AppViewModel(
     }
 
     fun deactivateAccount() {
+        if (_uiState.value.isAuthenticating) return
         submissionGeneration++
-        _uiState.update {
-            it.copy(
-                user = null,
-                destination = AppDestination.Map,
-                backStack = emptyList(),
-                myReportsFilters = ReportFilters(),
-                trackedReportId = null,
-                isSubmitting = false,
-                dialog = null,
-                message = "La cuenta de demostración fue desactivada.",
-            )
+        _uiState.update { it.copy(isAuthenticating = true, dialog = null) }
+        viewModelScope.launch {
+            try {
+                authRepository.deactivateAccount()
+                clearLocalSession("La cuenta fue desactivada.")
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        isAuthenticating = false,
+                        message = error.userFacingMessage("No pudimos desactivar la cuenta."),
+                    )
+                }
+            }
         }
     }
-
-    private fun normalizeCode(value: String) = value.filter(Char::isLetterOrDigit).uppercase()
 
     private fun opaqueCode(seed: Int): String {
         val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -493,3 +729,12 @@ class AppViewModel(
         return raw.chunked(4).joinToString("-")
     }
 }
+
+private fun Throwable.userFacingMessage(fallback: String): String = toUserFacingMessage(fallback)
+
+private fun Throwable.isUnauthorized(): Boolean =
+    (this as? ApiException)?.statusCode == 401
+
+private fun String.hasValidDniFormat(): Boolean =
+    trim().matches(Regex("(?:[0-9]{7,8}|[0-9]{1,2}\\.[0-9]{3}\\.[0-9]{3})")) &&
+        trim().replace(".", "").any { it != '0' }
