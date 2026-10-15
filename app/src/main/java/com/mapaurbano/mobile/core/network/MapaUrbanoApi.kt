@@ -3,7 +3,6 @@ package com.mapaurbano.mobile.core.network
 import com.mapaurbano.mobile.BuildConfig
 import com.mapaurbano.mobile.core.data.SessionStore
 import com.mapaurbano.mobile.core.model.Report
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
@@ -111,9 +110,9 @@ class MapaUrbanoApi(
         client.get(url("reports/$id")).decodeOrThrow()
 
     suspend fun createReport(report: Report): CreateReportResponseDto {
-        val token = if (report.submissionMode == SubmissionMode.Account) requireToken() else null
+        val token = requireToken()
         val response = client.post(url("reports")) {
-            if (token != null) bearerAuth(token)
+            bearerAuth(token)
             setBody(
                 MultiPartFormDataContent(
                     formData {
@@ -122,23 +121,13 @@ class MapaUrbanoApi(
                         append("categorySlug", report.category.slug)
                         append("latitude", report.point.latitude.toString())
                         append("longitude", report.point.longitude.toString())
-                        append("submissionMode", report.submissionMode.name.uppercase())
+                        append("submissionMode", "ACCOUNT")
                     },
                 ),
             )
         }
-        return if (report.submissionMode == SubmissionMode.Account) {
-            response.decodeAuthorized()
-        } else {
-            response.decodeOrThrow()
-        }
+        return response.decodeAuthorized()
     }
-
-    suspend fun getReportByTrackingCode(code: String): TrackingCodeResponseDto =
-        client.post(url("report-status")) {
-            contentType(ContentType.Application.Json)
-            setBody(TrackingCodeRequestDto(code))
-        }.decodeOrThrow()
 
     private suspend fun requireToken(): String = sessionStore.readToken()
         ?: throw ApiException(

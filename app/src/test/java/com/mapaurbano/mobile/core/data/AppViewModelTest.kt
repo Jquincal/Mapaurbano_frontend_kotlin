@@ -1,6 +1,5 @@
 package com.mapaurbano.mobile.core.data
 
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.core.model.User
 import com.mapaurbano.mobile.core.model.Report
 import com.mapaurbano.mobile.core.network.ApiException
@@ -14,7 +13,6 @@ import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -36,8 +34,34 @@ class AppViewModelTest {
     }
 
     @Test
-    fun anonymousSubmissionCreatesConfirmationAndTrackingCode() = runTest(dispatcher) {
+    fun unauthenticatedUserStartsOnLoginAndCannotOpenTheMap() = runTest(dispatcher) {
         val viewModel = AppViewModel(FakeReportRepository(), authRepository)
+        advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.destination is AppDestination.Login)
+
+        viewModel.navigate(AppDestination.Map)
+
+        assertTrue(viewModel.uiState.value.destination is AppDestination.Login)
+    }
+
+    @Test
+    fun loginUnlocksTheMap() = runTest(dispatcher) {
+        val viewModel = AppViewModel(FakeReportRepository(), authRepository)
+        advanceUntilIdle()
+
+        viewModel.login("30123456", "password123")
+        advanceUntilIdle()
+
+        assertEquals(AppDestination.Map, viewModel.uiState.value.destination)
+        assertEquals("user-1", viewModel.uiState.value.user?.id)
+    }
+
+    @Test
+    fun signedInSubmissionCreatesAnOwnedReport() = runTest(dispatcher) {
+        val viewModel = AppViewModel(FakeReportRepository(), authRepository)
+        viewModel.login("30123456", "password123")
+        advanceUntilIdle()
         val category = viewModel.uiState.value.categories.first()
         viewModel.navigate(AppDestination.CreateReport)
 
@@ -46,7 +70,6 @@ class AppViewModelTest {
                 title = "Bache peligroso",
                 description = "Ocupa media calzada",
                 categoryId = category.id,
-                submissionMode = SubmissionMode.Anonymous,
             )
         }
         viewModel.submitReport()
@@ -54,29 +77,21 @@ class AppViewModelTest {
 
         val state = viewModel.uiState.value
         assertTrue(state.destination is AppDestination.Confirmation)
-        assertNotNull(state.report(state.createdReportId)?.trackingCode)
+        assertEquals("user-1", state.report(state.createdReportId)?.ownerId)
     }
 
     @Test
-    fun accountModeRequestsLoginWithoutLosingDraft() = runTest(dispatcher) {
+    fun logoutReturnsToLoginAndClearsTheDraft() = runTest(dispatcher) {
         val viewModel = AppViewModel(FakeReportRepository(), authRepository)
+        viewModel.login("30123456", "password123")
+        advanceUntilIdle()
         viewModel.updateDraft { it.copy(title = "Luminaria apagada") }
 
-        viewModel.setSubmissionMode(SubmissionMode.Account)
-
-        assertTrue(viewModel.uiState.value.destination is AppDestination.Login)
-        assertEquals("Luminaria apagada", viewModel.uiState.value.draft.title)
-    }
-
-    @Test
-    fun trackingAcceptsCodeWithoutSeparators() = runTest(dispatcher) {
-        val viewModel = AppViewModel(FakeReportRepository(), authRepository)
-        viewModel.setTrackingQuery("7f2k9b1m4x3p")
-
-        viewModel.trackReport()
+        viewModel.logout()
         advanceUntilIdle()
 
-        assertEquals("REP-2048", viewModel.uiState.value.trackedReportId)
+        assertTrue(viewModel.uiState.value.destination is AppDestination.Login)
+        assertEquals("", viewModel.uiState.value.draft.title)
     }
 
     @Test
@@ -87,7 +102,6 @@ class AppViewModelTest {
         val initialCount = viewModel.uiState.value.reports.size
         val category = viewModel.uiState.value.categories.first()
         viewModel.navigate(AppDestination.CreateReport)
-        viewModel.setSubmissionMode(SubmissionMode.Account)
         viewModel.updateDraft {
             it.copy(title = "Semáforo intermitente", categoryId = category.id)
         }
@@ -105,6 +119,8 @@ class AppViewModelTest {
     @Test
     fun repeatedSubmitWhilePendingCreatesOnlyOneReport() = runTest(dispatcher) {
         val viewModel = AppViewModel(FakeReportRepository(), authRepository)
+        viewModel.login("30123456", "password123")
+        advanceUntilIdle()
         val initialCount = viewModel.uiState.value.reports.size
         val category = viewModel.uiState.value.categories.first()
         viewModel.navigate(AppDestination.CreateReport)
@@ -128,6 +144,8 @@ class AppViewModelTest {
             }
         }
         val viewModel = AppViewModel(failingRepository, authRepository)
+        viewModel.login("30123456", "password123")
+        advanceUntilIdle()
         val category = viewModel.uiState.value.categories.first()
         viewModel.navigate(AppDestination.CreateReport)
         viewModel.updateDraft {

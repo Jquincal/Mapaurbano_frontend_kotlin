@@ -9,8 +9,6 @@ Backend de referencia: `https://github.com/ZeroVeCC/MapaUrbano-backend-ktor.git`
 | Categorías activas | `GET /api/v1/categories` | Integrada |
 | Marcadores y lista del mapa | `GET /api/v1/reports` | Integrada |
 | Detalle público | `GET /api/v1/reports/{id}` | Integrada |
-| Crear reporte anónimo | `POST /api/v1/reports` | Integrada |
-| Seguimiento anónimo | `POST /api/v1/report-status` | Integrada |
 | Registro con DNI | `POST /api/v1/users/register` | Integrada |
 | Inicio de sesión con DNI | `POST /api/v1/users/login` | Integrada |
 | Recuperar sesión y perfil | `GET /api/v1/users/me` | Integrada |
@@ -33,7 +31,11 @@ El permiso de tráfico HTTP sin TLS está habilitado únicamente en la variante 
 
 ## Sesión ciudadana
 
-El acceso usa DNI y contraseña. El token bearer se guarda en DataStore, se restaura al abrir la aplicación y se elimina al cerrar sesión, desactivar la cuenta o recibir una sesión inválida en una llamada protegida. Las cuentas se registran con nombre, DNI y contraseña; el correo ya no forma parte de este contrato.
+El acceso usa DNI y contraseña y es obligatorio antes de entrar al mapa o usar cualquier función principal. El token bearer se guarda en DataStore, se restaura al abrir la aplicación y se elimina al cerrar sesión, desactivar la cuenta o recibir una sesión inválida en una llamada protegida. Las cuentas se registran con nombre, DNI y contraseña; el correo ya no forma parte de este contrato.
+
+El frontend no ofrece creación ni seguimiento anónimos. Cada `POST /reports` exige un token bearer, envía `submissionMode=ACCOUNT` y vincula el reporte con la sesión activa. Los avances se consultan desde `GET /users/me/reports`.
+
+Para que esta regla sea una garantía de seguridad y no solamente una restricción de interfaz, el backend también debe rechazar cualquier `POST /reports` sin bearer válido y cualquier intento de usar `submissionMode=ANONYMOUS`. Ese cambio corresponde al equipo del backend y no se realizó desde este repositorio.
 
 ## Pendientes del contrato del backend
 

@@ -9,20 +9,15 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CheckCircle
-import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.material.icons.rounded.Home
 import androidx.compose.material.icons.rounded.OpenInNew
-import androidx.compose.material.icons.rounded.Share
-import androidx.compose.material.icons.rounded.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -33,13 +28,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.mapaurbano.mobile.core.designsystem.MuniColors
 import com.mapaurbano.mobile.core.model.Report
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.feature.common.MiniMapIllustration
 import com.mapaurbano.mobile.feature.common.ScrollableFeatureScreen
 import com.mapaurbano.mobile.feature.common.StitchCard
@@ -49,16 +42,10 @@ import com.mapaurbano.mobile.feature.common.StitchPrimaryButton
 fun ConfirmationScreen(
     report: Report,
     modifier: Modifier = Modifier,
-    onCopyTrackingCode: (String) -> Unit,
-    onShareTrackingCode: (String) -> Unit,
     onOpenReport: () -> Unit,
     onCreateAnother: () -> Unit,
     onGoToMap: () -> Unit,
 ) {
-    val anonymousCode = report.trackingCode.takeIf {
-        report.submissionMode == SubmissionMode.Anonymous && !it.isNullOrBlank()
-    }
-
     ScrollableFeatureScreen(
         title = "Confirmación",
         modifier = modifier,
@@ -102,62 +89,9 @@ fun ConfirmationScreen(
                 Text("COMPROBANTE MUNICIPAL", style = MaterialTheme.typography.labelSmall, color = MuniColors.OnSurfaceVariant)
                 Text(report.createdAtLabel, style = MaterialTheme.typography.labelSmall, color = MuniColors.OnSurfaceVariant)
             }
-            if (anonymousCode != null) {
-                StitchCard(containerColor = MuniColors.SurfaceContainerLow, contentPadding = PaddingValues(14.dp)) {
-                    Text(
-                        "Código de seguimiento anónimo",
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MuniColors.OnSurfaceVariant,
-                    )
-                    SelectionContainer {
-                        Text(
-                            text = anonymousCode,
-                            modifier = Modifier.align(Alignment.CenterHorizontally),
-                            style = MaterialTheme.typography.headlineSmall,
-                            fontFamily = FontFamily.Monospace,
-                            fontWeight = FontWeight.Bold,
-                            color = MuniColors.Primary,
-                        )
-                    }
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                        OutlinedButton(
-                            onClick = { onCopyTrackingCode(anonymousCode) },
-                            modifier = Modifier.weight(1f).sizeIn(minHeight = 44.dp),
-                        ) {
-                            Icon(Icons.Rounded.ContentCopy, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Copiar")
-                        }
-                        OutlinedButton(
-                            onClick = { onShareTrackingCode(anonymousCode) },
-                            modifier = Modifier.weight(1f).sizeIn(minHeight = 44.dp),
-                        ) {
-                            Icon(Icons.Rounded.Share, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.width(6.dp))
-                            Text("Compartir")
-                        }
-                    }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .background(MuniColors.Orange100, MaterialTheme.shapes.medium)
-                            .padding(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Icon(Icons.Rounded.Warning, contentDescription = null, tint = MuniColors.Orange700, modifier = Modifier.size(18.dp))
-                        Text(
-                            "Guardá este código. Es la llave para consultar avances del reporte anónimo.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MuniColors.Orange700,
-                        )
-                    }
-                }
-            } else {
-                StitchCard(containerColor = MuniColors.PrimaryFixed, contentPadding = PaddingValues(12.dp)) {
-                    Text("Vinculado a tu perfil civico", style = MaterialTheme.typography.labelLarge, color = MuniColors.Primary)
-                    Text("Podras consultar los avances desde Mis reportes.", style = MaterialTheme.typography.bodySmall)
-                }
+            StitchCard(containerColor = MuniColors.PrimaryFixed, contentPadding = PaddingValues(12.dp)) {
+                Text("Vinculado a tu perfil cívico", style = MaterialTheme.typography.labelLarge, color = MuniColors.Primary)
+                Text("Podrás consultar los avances desde Mis reportes.", style = MaterialTheme.typography.bodySmall)
             }
             DetailLine("Numero de reporte", report.id)
             DetailLine("Categoría", report.category.label)
@@ -166,7 +100,7 @@ fun ConfirmationScreen(
         }
 
         StitchPrimaryButton(
-            text = if (anonymousCode != null) "Ver seguimiento" else "Ver detalle del reporte",
+            text = "Ver detalle del reporte",
             onClick = onOpenReport,
             icon = Icons.Rounded.OpenInNew,
         )

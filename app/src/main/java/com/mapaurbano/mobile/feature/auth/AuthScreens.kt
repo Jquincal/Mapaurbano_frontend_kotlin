@@ -64,12 +64,11 @@ fun LoginScreen(
     onPasswordChange: (String) -> Unit,
     onLogin: () -> Unit,
     onRegister: () -> Unit,
-    onBack: () -> Unit,
     onForgotPassword: () -> Unit = {},
     onUnavailableFeature: (String) -> Unit = {},
 ) {
-    ScrollableFeatureScreen(title = "Iniciar sesión", modifier = modifier, onBack = onBack) {
-        AuthHero("Bienvenido a MuniReport", "Ingresá para guardar reportes y seguir su avance.")
+    ScrollableFeatureScreen(title = "Iniciar sesión", modifier = modifier) {
+        AuthHero("Bienvenido a MuniReport", "Para usar la aplicación, iniciá sesión o creá una cuenta.")
         message?.let { AuthNotice(it) }
         StitchCard {
             AuthField(
@@ -160,7 +159,7 @@ fun RegisterScreen(
                 color = MuniColors.Primary,
             )
         }
-        AuthHero("Únete a MuniReport", "Tu cuenta permite consultar Mis reportes sin guardar códigos manualmente.")
+        AuthHero("Únete a MuniReport", "Tu cuenta es obligatoria para crear reportes y consultar sus avances.")
         message?.let { AuthNotice(it) }
         StitchCard {
             AuthField(displayName, onDisplayNameChange, "Nombre y apellido", Icons.Rounded.Person, ContentType.PersonFullName)

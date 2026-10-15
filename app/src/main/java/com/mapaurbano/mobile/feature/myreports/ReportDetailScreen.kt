@@ -87,13 +87,6 @@ fun ReportDetailScreen(
                 DetailRow(Icons.Rounded.Category, "Categoría", report.category.label)
                 DetailRow(Icons.Rounded.LocationOn, "Ubicación", report.location)
                 DetailRow(Icons.Rounded.CalendarToday, "Creado", report.createdAtLabel)
-                if (showPrivateInformation) {
-                    DetailRow(
-                        Icons.Rounded.CheckCircle,
-                        "Forma de envío",
-                        report.submissionMode.label,
-                    )
-                }
             }
         }
 

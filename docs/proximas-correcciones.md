@@ -33,8 +33,7 @@ La fila fallida también contenía `priority=NULL` y `location=NULL`. La causa e
 
 - Hacer que `PgEnum.setParameter` acepte y reutilice un `PGobject`, además de admitir el enum original.
 - Hacer que `GeographyPointColumnType.setParameter` acepte y reutilice un `PGobject`, además de admitir `GeoPoint`.
-- Agregar una prueba de integración con PostgreSQL/PostGIS que cree un reporte anónimo y compruebe `status`, `priority` y `location` persistidos.
-- Repetir la prueba para un reporte asociado a una cuenta.
+- Agregar una prueba de integración con PostgreSQL/PostGIS que cree un reporte autenticado y compruebe `status`, `priority`, `location` y el usuario propietario persistidos.
 - Traducir cualquier fallo de persistencia a un error API controlado; no devolver un 500 genérico sin un mensaje útil para el cliente.
 
 **Evidencia anterior:** categorías y listado vacío respondían HTTP 200; los intentos de creación finalizaban como HTTP 500 por la misma restricción.
@@ -52,11 +51,11 @@ La fila fallida también contenía `priority=NULL` y `location=NULL`. La causa e
 **Cambios aplicados en backend:**
 
 - Corregir `GeographyPointColumnType.valueFromDB()` para decodificar correctamente EWKB/WKB, o proyectar explícitamente `ST_Y(location::geometry)` y `ST_X(location::geometry)` en todas las consultas que reconstruyen un reporte.
-- Aplicar la solución a listado público, detalle, reportes del usuario y búsqueda por código de seguimiento; no solamente a una ruta.
+- Aplicar la solución a listado público, detalle y reportes del usuario; no solamente a una ruta.
 - Eliminar el fallback silencioso `GeoPoint(0.0, 0.0)`. Un formato desconocido debe producir un error controlado y visible en pruebas, nunca coordenadas válidas inventadas.
 - Mantener el orden correcto: `latitude = ST_Y(...)` y `longitude = ST_X(...)`.
 - Agregar una prueba de integración que cree un reporte con coordenadas no nulas, cierre la conexión o reconstruya el repositorio como en un reinicio y compruebe que las rutas REST devuelven exactamente los mismos valores.
-- Verificar en la prueba tanto PostgreSQL como la respuesta JSON de `GET /api/v1/reports`, `GET /api/v1/reports/{id}`, reportes del usuario y seguimiento anónimo.
+- Verificar en la prueba tanto PostgreSQL como la respuesta JSON de `GET /api/v1/reports`, `GET /api/v1/reports/{id}` y reportes del usuario.
 - Revisar también el listado sin límites enviados por el cliente: el sobre mundial `-180..180` convertido a `geography` actualmente puede provocar el error PostGIS `Antipodal (180 degrees long) edge detected`.
 
 **Verificación posterior a la integración:** las pruebas nuevas de decodificación, límites y respuesta de coordenadas finalizaron correctamente. Después de reiniciar el servidor, `GET /api/v1/reports` devolvió los cinco puntos reales y coincidió con `ST_Y/ST_X` en PostgreSQL. El listado sin `bbox` también respondió HTTP 200. Android mantiene la validación que evita dibujar cualquier coordenada inválida, pero ya recibe los valores reales del backend.

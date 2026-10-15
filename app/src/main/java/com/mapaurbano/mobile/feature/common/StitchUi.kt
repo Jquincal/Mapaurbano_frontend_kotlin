@@ -40,7 +40,6 @@ import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.NotificationsNone
-import androidx.compose.material.icons.rounded.Radar
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -66,7 +65,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -614,7 +612,6 @@ fun StitchBottomNavigation(
     onMap: () -> Unit,
     onCreate: () -> Unit,
     onMyReports: () -> Unit,
-    onTracking: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
@@ -633,8 +630,7 @@ fun StitchBottomNavigation(
         val items = listOf(
             Triple("Mapa", Icons.Rounded.Map, onMap),
             Triple("Reportar", Icons.Rounded.AddLocationAlt, onCreate),
-                    Triple("Mis reportes", Icons.AutoMirrored.Rounded.Assignment, onMyReports),
-            Triple("Seguimiento", Icons.Rounded.Radar, onTracking),
+            Triple("Mis reportes", Icons.AutoMirrored.Rounded.Assignment, onMyReports),
         )
         items.forEach { (label, icon, action) ->
             val selected = selectedLabel == label

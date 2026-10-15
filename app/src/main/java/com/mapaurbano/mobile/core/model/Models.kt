@@ -6,11 +6,6 @@ enum class ReportStatus(val label: String) {
     Resolved("Resuelto"),
 }
 
-enum class SubmissionMode(val label: String) {
-    Account("Guardar en mi cuenta"),
-    Anonymous("Reportar de forma anónima"),
-}
-
 data class Category(
     val id: String,
     val label: String,
@@ -41,9 +36,7 @@ data class Report(
     val location: String,
     val point: MapPoint,
     val createdAtLabel: String,
-    val submissionMode: SubmissionMode,
     val ownerId: String? = null,
-    val trackingCode: String? = null,
     val hasPhoto: Boolean = false,
     val history: List<StatusEvent> = emptyList(),
 )
@@ -61,7 +54,6 @@ data class ReportDraft(
     val categoryId: String? = null,
     val location: String = "Av. San Martín 1420",
     val point: MapPoint = DefaultDraftPoint,
-    val submissionMode: SubmissionMode = SubmissionMode.Anonymous,
     val hasPhoto: Boolean = false,
     val photoIssue: PhotoIssue? = null,
 ) {
@@ -71,7 +63,6 @@ data class ReportDraft(
             categoryId != null ||
             hasPhoto ||
             photoIssue != null ||
-            submissionMode != SubmissionMode.Anonymous ||
             location != "Av. San Martín 1420" ||
             point != DefaultDraftPoint
 

@@ -5,31 +5,19 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.statusBarsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.AddCircle
-import androidx.compose.material.icons.rounded.Assignment
-import androidx.compose.material.icons.rounded.HelpOutline
-import androidx.compose.material.icons.rounded.Map
-import androidx.compose.material.icons.rounded.TrackChanges
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -41,19 +29,15 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mapaurbano.mobile.core.data.AppDialog
 import com.mapaurbano.mobile.core.data.AppUiState
 import com.mapaurbano.mobile.core.data.AppViewModel
-import com.mapaurbano.mobile.core.model.Report
 import com.mapaurbano.mobile.core.model.ContentLoadState
 import com.mapaurbano.mobile.core.model.PhotoIssue
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.core.navigation.AppDestination
 import com.mapaurbano.mobile.core.navigation.isMainDestination
 import com.mapaurbano.mobile.feature.auth.LoginScreen
@@ -69,14 +53,12 @@ import com.mapaurbano.mobile.feature.myreports.ReportDetailScreen
 import com.mapaurbano.mobile.feature.report.ConfirmationScreen
 import com.mapaurbano.mobile.feature.report.LocationPickerScreen
 import com.mapaurbano.mobile.feature.report.ReportFormScreen
-import com.mapaurbano.mobile.feature.tracking.TrackingScreen
 
 @Composable
 fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
     val state by appViewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
 
     var dni by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -97,7 +79,11 @@ fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
         }
     }
 
-    BackHandler(enabled = state.destination != AppDestination.Map || state.dialog != null) {
+    BackHandler(
+        enabled = state.dialog != null ||
+            state.destination is AppDestination.Register ||
+            (state.user != null && state.destination != AppDestination.Map),
+    ) {
         if (state.destination is AppDestination.Login || state.destination is AppDestination.Register) {
             password = ""
             confirmPassword = ""
@@ -150,19 +136,6 @@ fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
                     password = ""
                     confirmPassword = ""
                 },
-                onCopyCode = { code ->
-                    runCatching { clipboard.setText(AnnotatedString(code)) }
-                        .onSuccess { appViewModel.notify("Código copiado.") }
-                        .onFailure { appViewModel.notify("No pudimos copiar el código. Mantenelo presionado para seleccionarlo.") }
-                },
-                onPasteCode = {
-                    val pasted = clipboard.getText()?.text?.trim().orEmpty()
-                    if (pasted.isBlank()) {
-                        appViewModel.notify("No hay un código disponible en el portapapeles.")
-                    } else {
-                        appViewModel.setTrackingQuery(pasted)
-                    }
-                },
                 onShareText = { text ->
                     val intent = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
@@ -204,10 +177,13 @@ private fun DestinationContent(
     onDisplayNameChange: (String) -> Unit,
     onConfirmPasswordChange: (String) -> Unit,
     onClearSecrets: () -> Unit,
-    onCopyCode: (String) -> Unit,
-    onPasteCode: () -> Unit,
     onShareText: (String) -> Unit,
 ) {
+    if (state.isRestoringSession) {
+        SessionRestoringScreen()
+        return
+    }
+
     when (val destination = state.destination) {
         AppDestination.Map -> MapScreen(
             reports = state.visibleReports,
@@ -235,10 +211,8 @@ private fun DestinationContent(
         AppDestination.CreateReport -> ReportFormScreen(
             draft = state.draft,
             categories = state.categories,
-            isSignedIn = state.user != null,
             validationMessage = state.formError,
             onDraftChange = { draft -> viewModel.updateDraft { draft } },
-            onSubmissionModeChange = viewModel::setSubmissionMode,
             onChooseLocation = { viewModel.navigate(AppDestination.LocationPicker) },
             onPhotoRequest = { viewModel.showDialog(AppDialog.PhotoPicker) },
             onRemovePhoto = { viewModel.setPhoto(false) },
@@ -271,21 +245,6 @@ private fun DestinationContent(
             },
         )
 
-        AppDestination.Tracking -> TrackingScreen(
-            query = state.trackingQuery,
-            report = state.report(state.trackedReportId),
-            errorMessage = state.trackingError,
-            onQueryChange = viewModel::setTrackingQuery,
-            onTrack = viewModel::trackReport,
-            onReportClick = { viewModel.navigate(AppDestination.ReportDetail(it.id)) },
-            isLoading = state.isTracking,
-            onPaste = onPasteCode,
-            onProfile = { viewModel.navigate(AppDestination.Profile) },
-            onNotifications = {
-                viewModel.showDialog(AppDialog.FutureFeature("Notificaciones"))
-            },
-        )
-
         AppDestination.Profile -> state.user?.let { user ->
             ProfileScreen(
                 user = user,
@@ -310,10 +269,6 @@ private fun DestinationContent(
             onRegister = {
                 onClearSecrets()
                 viewModel.navigate(AppDestination.Register(destination.returnTo))
-            },
-            onBack = {
-                onClearSecrets()
-                viewModel.back()
             },
             onForgotPassword = { viewModel.showDialog(AppDialog.FutureFeature("Recuperar contraseña")) },
             onUnavailableFeature = { title ->
@@ -369,15 +324,7 @@ private fun DestinationContent(
             } else {
                 ConfirmationScreen(
                     report = report,
-                    onCopyTrackingCode = onCopyCode,
-                    onShareTrackingCode = { onShareText("Código MuniReport: $it") },
-                    onOpenReport = {
-                        if (report.submissionMode == SubmissionMode.Anonymous) {
-                            viewModel.openTrackingFor(report)
-                        } else {
-                            viewModel.navigate(AppDestination.ReportDetail(report.id))
-                        }
-                    },
+                    onOpenReport = { viewModel.navigate(AppDestination.ReportDetail(report.id)) },
                     onCreateAnother = { viewModel.navigate(AppDestination.CreateReport) },
                     onGoToMap = { viewModel.navigate(AppDestination.Map, replace = true) },
                 )
@@ -402,13 +349,11 @@ private fun MainNavigationBar(
         selectedLabel = when (destination) {
             AppDestination.CreateReport -> "Reportar"
             AppDestination.MyReports -> "Mis reportes"
-            AppDestination.Tracking -> "Seguimiento"
             else -> "Mapa"
         },
         onMap = { onNavigate(AppDestination.Map) },
         onCreate = { onNavigate(AppDestination.CreateReport) },
         onMyReports = { onNavigate(AppDestination.MyReports) },
-        onTracking = { onNavigate(AppDestination.Tracking) },
     )
 }
 
@@ -434,7 +379,7 @@ private fun AppDialogHost(
             title = { Text("Ayuda y estados de demostración") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Podés explorar reportes públicos, crear uno con cuenta o de forma anónima y consultar un código desde Seguimiento.")
+                    Text("Iniciá sesión para explorar el mapa, crear reportes vinculados a tu cuenta y consultar sus avances desde Mis reportes.")
                     TextButton(onClick = onSimulateContentError) { Text("Simular error de carga") }
                     TextButton(onClick = onFailNextSubmission) { Text("Simular error del próximo envío") }
                     TextButton(onClick = onSimulateSessionExpiry) { Text("Simular sesión vencida") }
@@ -480,6 +425,24 @@ private fun AppDialogHost(
             },
             confirmButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
         )
+    }
+}
+
+@Composable
+private fun SessionRestoringScreen() {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .statusBarsPadding(),
+        contentAlignment = Alignment.Center,
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            CircularProgressIndicator()
+            Text("Comprobando tu sesión…", style = MaterialTheme.typography.bodyMedium)
+        }
     }
 }
 

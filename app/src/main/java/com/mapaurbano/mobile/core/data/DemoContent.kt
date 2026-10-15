@@ -5,7 +5,6 @@ import com.mapaurbano.mobile.core.model.MapPoint
 import com.mapaurbano.mobile.core.model.Report
 import com.mapaurbano.mobile.core.model.ReportStatus
 import com.mapaurbano.mobile.core.model.StatusEvent
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.core.model.User
 
 object DemoContent {
@@ -34,8 +33,6 @@ object DemoContent {
             location = "San Martín y Rivadavia",
             point = MapPoint(.34f, .42f, -32.8891, -68.8448, "San Martín y Rivadavia"),
             createdAtLabel = "hace 2 h",
-            submissionMode = SubmissionMode.Anonymous,
-            trackingCode = "7F2K-9B1M-4X3P",
             hasPhoto = true,
             history = listOf(
                 StatusEvent(ReportStatus.Pending, "Reporte recibido", "El municipio recibió el reporte.", "Hoy, 09:15"),
@@ -51,7 +48,6 @@ object DemoContent {
             location = "Plaza Central, lateral norte",
             point = MapPoint(.58f, .30f, -32.8882, -68.8462, "Plaza Central"),
             createdAtLabel = "ayer",
-            submissionMode = SubmissionMode.Account,
             ownerId = user.id,
             history = listOf(StatusEvent(ReportStatus.Pending, "Reporte recibido", "Pendiente de revisión.", "Ayer, 18:20")),
         ),
@@ -64,7 +60,6 @@ object DemoContent {
             location = "Barrio Centro, Manzana 4",
             point = MapPoint(.72f, .63f, -32.8904, -68.8428, "Barrio Centro"),
             createdAtLabel = "hace 3 días",
-            submissionMode = SubmissionMode.Account,
             ownerId = user.id,
             hasPhoto = true,
             history = listOf(
@@ -82,8 +77,6 @@ object DemoContent {
             location = "Parque Belgrano, ingreso oeste",
             point = MapPoint(.44f, .74f, -32.8911, -68.8473, "Parque Belgrano"),
             createdAtLabel = "hace 5 días",
-            submissionMode = SubmissionMode.Anonymous,
-            trackingCode = "9PN4-2QRT-8W6A",
             history = listOf(StatusEvent(ReportStatus.Pending, "Reporte recibido", "Pendiente de revisión.", "27 sep, 12:05")),
         ),
     )
