@@ -16,8 +16,6 @@ interface ReportRepository {
     suspend fun getCurrentUserReports(userId: String, categories: List<Category>): List<Report>
 
     suspend fun createReport(report: Report): Report
-
-    suspend fun getReportByTrackingCode(code: String, categories: List<Category>): Report
 }
 
 /** Repositorio determinista para pruebas y vistas previas sin conexión. */
@@ -43,12 +41,5 @@ class FakeReportRepository(
     override suspend fun createReport(report: Report): Report {
         storedReports.add(0, report)
         return report
-    }
-
-    override suspend fun getReportByTrackingCode(code: String, categories: List<Category>): Report {
-        val normalized = code.filter(Char::isLetterOrDigit).uppercase()
-        return storedReports.first {
-            it.trackingCode?.filter(Char::isLetterOrDigit)?.uppercase() == normalized
-        }
     }
 }

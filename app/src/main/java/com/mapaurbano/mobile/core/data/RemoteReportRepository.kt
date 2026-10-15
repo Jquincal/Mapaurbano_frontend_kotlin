@@ -5,13 +5,11 @@ import com.mapaurbano.mobile.core.model.MapPoint
 import com.mapaurbano.mobile.core.model.Report
 import com.mapaurbano.mobile.core.model.ReportStatus
 import com.mapaurbano.mobile.core.model.StatusEvent
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.core.network.CategoryDto
 import com.mapaurbano.mobile.core.network.MapaUrbanoApi
 import com.mapaurbano.mobile.core.network.ReportDetailDto
 import com.mapaurbano.mobile.core.network.ReportSummaryDto
 import com.mapaurbano.mobile.core.network.StatusHistoryDto
-import com.mapaurbano.mobile.core.network.TrackingCodeResponseDto
 import java.time.Duration
 import java.time.Instant
 import java.time.format.DateTimeParseException
@@ -39,7 +37,6 @@ class RemoteReportRepository(
         categories: List<Category>,
     ): List<Report> = api.getCurrentUserReports().items.map { summary ->
         summary.toModel(categories).copy(
-            submissionMode = SubmissionMode.Account,
             ownerId = userId,
         )
     }
@@ -49,15 +46,9 @@ class RemoteReportRepository(
         return report.copy(
             id = response.id,
             status = response.status.toReportStatus(),
-            trackingCode = response.trackingCode,
             createdAtLabel = response.createdAt.toRelativeLabel(),
         )
     }
-
-    override suspend fun getReportByTrackingCode(
-        code: String,
-        categories: List<Category>,
-    ): Report = api.getReportByTrackingCode(code).toModel(categories, code)
 }
 
 private fun CategoryDto.toModel(): Category = Category(
@@ -78,7 +69,6 @@ private fun ReportSummaryDto.toModel(categories: List<Category>): Report {
         location = coordinateLabel(latitude, longitude),
         point = mapPoint(latitude, longitude),
         createdAtLabel = createdAt.toRelativeLabel(),
-        submissionMode = SubmissionMode.Anonymous,
         hasPhoto = hasImage,
     )
 }
@@ -92,25 +82,6 @@ private fun ReportDetailDto.toModel(categories: List<Category>): Report = Report
     location = coordinateLabel(latitude, longitude),
     point = mapPoint(latitude, longitude),
     createdAtLabel = createdAt.toRelativeLabel(),
-    submissionMode = SubmissionMode.Anonymous,
-    hasPhoto = hasImage,
-    history = statusHistory.map(StatusHistoryDto::toModel),
-)
-
-private fun TrackingCodeResponseDto.toModel(
-    categories: List<Category>,
-    trackingCode: String,
-): Report = Report(
-    id = id,
-    title = "Reporte ${id.take(8)}",
-    description = "Consulta realizada mediante código de seguimiento.",
-    category = categories.findCategory(categorySlug),
-    status = status.toReportStatus(),
-    location = coordinateLabel(latitude, longitude),
-    point = mapPoint(latitude, longitude),
-    createdAtLabel = createdAt.toRelativeLabel(),
-    submissionMode = SubmissionMode.Anonymous,
-    trackingCode = trackingCode,
     hasPhoto = hasImage,
     history = statusHistory.map(StatusHistoryDto::toModel),
 )

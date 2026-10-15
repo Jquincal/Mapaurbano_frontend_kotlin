@@ -14,12 +14,11 @@ La marca visible en la aplicación es **MuniReport**.
 - Búsqueda y filtros combinables por estado y categoría.
 - Detalle público sin exponer la identidad del vecino.
 - Formulario conectado al backend, con borrador, ubicación manual o GPS; la foto continúa simulada.
-- Confirmación con código opaco para reportes anónimos.
-- Seguimiento real por código y detalle público.
-- Registro e inicio de sesión reales por DNI, con recuperación y cierre de sesión mediante token bearer.
-- Creación de reportes asociados a la cuenta, perfil, desactivación y listado de Mis reportes conectados al backend.
+- Acceso obligatorio mediante registro o inicio de sesión por DNI antes de entrar a la aplicación.
+- Creación de reportes exclusivamente vinculados a una cuenta y autorizados mediante token bearer.
+- Confirmación, perfil, desactivación y seguimiento de avances desde Mis reportes.
 - Estados de carga, vacío, error y validación.
-- Navegación inferior de cuatro destinos y retorno correcto desde autenticación.
+- Navegación inferior de tres destinos: Mapa, Reportar y Mis reportes.
 - Interfaz edge-to-edge con barra de navegación del sistema oculta de forma automática.
 
 La app consume la API Ktor de `MapaUrbano-backend-ktor`. El mapa usa MapLibre Native con el estilo Liberty de OpenFreeMap y permite gestos, selección manual y centrado mediante el GPS del dispositivo. La cámara y el envío de fotografías reales continúan pendientes.
@@ -28,7 +27,7 @@ La app consume la API Ktor de `MapaUrbano-backend-ktor`. El mapa usa MapLibre Na
 
 - Para crear una cuenta se requiere nombre, DNI argentino de 7 u 8 dígitos y contraseña de al menos 8 caracteres.
 - El DNI puede escribirse con o sin puntos; se envía como texto para conservar posibles ceros iniciales.
-- El código de seguimiento depende de los reportes anónimos existentes en la base conectada.
+- Para crear un reporte es obligatorio iniciar sesión; el frontend no expone creación ni seguimiento anónimos.
 
 ## Requisitos
 
@@ -74,8 +73,7 @@ app/src/main/java/com/mapaurbano/mobile/
     ├── common/
     ├── map/
     ├── myreports/
-    ├── report/
-    └── tracking/
+    └── report/
 ```
 
 La dirección de dependencias se mantiene como `UI → ViewModel → Repository`. La aplicación usa `RemoteReportRepository`; `FakeReportRepository` queda reservado para pruebas y vistas sin red.
@@ -86,8 +84,7 @@ Ya están conectados:
 
 - `GET /categories`;
 - `GET /reports` y `GET /reports/{id}`;
-- `POST /reports` para reportes anónimos o asociados a una cuenta;
-- `POST /report-status`;
+- `POST /reports` únicamente con token bearer y modalidad `ACCOUNT`;
 - registro, login, perfil, logout y desactivación bajo `/users`;
 - `GET /users/me/reports` para Mis reportes.
 

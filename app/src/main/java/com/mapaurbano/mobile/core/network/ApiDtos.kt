@@ -91,26 +91,8 @@ data class StatusHistoryDto(
 @Serializable
 data class CreateReportResponseDto(
     val id: String,
-    val submissionMode: String,
     val status: String,
     val createdAt: String,
-    val trackingCode: String? = null,
-)
-
-@Serializable
-data class TrackingCodeRequestDto(val trackingCode: String)
-
-@Serializable
-data class TrackingCodeResponseDto(
-    val id: String,
-    val status: String,
-    val categorySlug: String,
-    val latitude: Double,
-    val longitude: Double,
-    val hasImage: Boolean,
-    val createdAt: String,
-    val updatedAt: String,
-    val statusHistory: List<StatusHistoryDto> = emptyList(),
 )
 
 @Serializable

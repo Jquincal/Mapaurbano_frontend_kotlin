@@ -28,14 +28,12 @@ import androidx.compose.material.icons.rounded.CheckCircle
 import androidx.compose.material.icons.rounded.EditNote
 import androidx.compose.material.icons.rounded.LocationOn
 import androidx.compose.material.icons.rounded.MyLocation
-import androidx.compose.material.icons.rounded.Security
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,8 +44,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.error
 import androidx.compose.ui.semantics.semantics
@@ -58,7 +54,6 @@ import androidx.compose.ui.unit.dp
 import com.mapaurbano.mobile.core.designsystem.MuniColors
 import com.mapaurbano.mobile.core.model.Category
 import com.mapaurbano.mobile.core.model.ReportDraft
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.feature.common.MiniMapIllustration
 import com.mapaurbano.mobile.feature.common.ScrollableFeatureScreen
 import com.mapaurbano.mobile.feature.common.StitchCard
@@ -68,11 +63,9 @@ import com.mapaurbano.mobile.feature.common.StitchPrimaryButton
 fun ReportFormScreen(
     draft: ReportDraft,
     categories: List<Category>,
-    isSignedIn: Boolean,
     modifier: Modifier = Modifier,
     validationMessage: String? = null,
     onDraftChange: (ReportDraft) -> Unit,
-    onSubmissionModeChange: (SubmissionMode) -> Unit,
     onChooseLocation: () -> Unit,
     onPhotoRequest: () -> Unit,
     onRemovePhoto: () -> Unit,
@@ -124,12 +117,21 @@ fun ReportFormScreen(
             }
         }
 
-        ModeSelector(
-            selected = draft.submissionMode,
-            accountAvailable = isSignedIn,
-            enabled = controlsEnabled,
-            onSubmissionModeChange = onSubmissionModeChange,
-        )
+        StitchCard(
+            containerColor = MuniColors.PrimaryFixed,
+            contentPadding = PaddingValues(14.dp),
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(Icons.Rounded.AccountCircle, contentDescription = null, tint = MuniColors.Primary)
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("Reporte vinculado a tu cuenta", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
+                    Text("Podrás consultar todos los avances desde Mis reportes.", style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
 
         FieldLabel("Título breve", required = true)
         OutlinedTextField(
@@ -228,72 +230,6 @@ fun ReportFormScreen(
                 color = MuniColors.Primary,
             )
         }
-    }
-}
-
-@Composable
-private fun ModeSelector(
-    selected: SubmissionMode,
-    accountAvailable: Boolean,
-    enabled: Boolean,
-    onSubmissionModeChange: (SubmissionMode) -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        FieldLabel("Modalidad del reporte")
-        Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.fillMaxWidth()) {
-            ModeCard(
-                mode = SubmissionMode.Account,
-                selected = selected == SubmissionMode.Account,
-                enabled = enabled,
-                icon = Icons.Rounded.AccountCircle,
-                title = "Guardar en mi cuenta",
-                description = if (accountAvailable) "Vinculado a tu cuenta." else "Te pediremos iniciar sesión.",
-                modifier = Modifier.weight(1f),
-                onClick = { onSubmissionModeChange(SubmissionMode.Account) },
-            )
-            ModeCard(
-                mode = SubmissionMode.Anonymous,
-                selected = selected == SubmissionMode.Anonymous,
-                enabled = enabled,
-                icon = Icons.Rounded.Security,
-                title = "Anonimo",
-                description = "Recibirás un código seguro.",
-                modifier = Modifier.weight(1f),
-                onClick = { onSubmissionModeChange(SubmissionMode.Anonymous) },
-            )
-        }
-    }
-}
-
-@Composable
-private fun ModeCard(
-    mode: SubmissionMode,
-    selected: Boolean,
-    enabled: Boolean,
-    icon: ImageVector,
-    title: String,
-    description: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    StitchCard(
-        modifier = modifier
-            .alpha(if (enabled) 1f else DISABLED_CONTROL_ALPHA)
-            .border(
-                width = if (selected) 2.dp else 1.dp,
-                color = if (selected) MuniColors.Primary else MuniColors.OutlineVariant,
-                shape = RoundedCornerShape(16.dp),
-            )
-            .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick),
-        containerColor = MuniColors.SurfaceContainerLowest,
-        contentPadding = PaddingValues(12.dp),
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            RadioButton(selected = selected, onClick = null, enabled = enabled)
-            Icon(icon, contentDescription = null, tint = if (selected) MuniColors.Primary else MuniColors.Outline)
-        }
-        Text(title, style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Bold)
-        Text(description, style = MaterialTheme.typography.bodySmall, color = MuniColors.OnSurfaceVariant)
     }
 }
 

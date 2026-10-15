@@ -12,7 +12,6 @@ import com.mapaurbano.mobile.core.model.ReportDraft
 import com.mapaurbano.mobile.core.model.ReportFilters
 import com.mapaurbano.mobile.core.model.ReportStatus
 import com.mapaurbano.mobile.core.model.StatusEvent
-import com.mapaurbano.mobile.core.model.SubmissionMode
 import com.mapaurbano.mobile.core.model.User
 import com.mapaurbano.mobile.core.network.ApiException
 import com.mapaurbano.mobile.core.navigation.AppDestination
@@ -33,7 +32,7 @@ sealed interface AppDialog {
 }
 
 data class AppUiState(
-    val destination: AppDestination = AppDestination.Map,
+    val destination: AppDestination = AppDestination.Login(AppDestination.Map),
     val backStack: List<AppDestination> = emptyList(),
     val reports: List<Report> = DemoContent.reports,
     val categories: List<Category> = DemoContent.categories,
@@ -43,16 +42,13 @@ data class AppUiState(
     val myReportsFilters: ReportFilters = ReportFilters(),
     val mapPresentation: MapPresentation = MapPresentation.Map,
     val createdReportId: String? = null,
-    val trackingQuery: String = "",
-    val trackedReportId: String? = null,
-    val trackingError: String? = null,
-    val isTracking: Boolean = false,
     val contentLoadState: ContentLoadState = ContentLoadState.Ready,
     val contentLoadError: String? = null,
     val myReportsLoadState: ContentLoadState = ContentLoadState.Ready,
     val myReportsLoadError: String? = null,
     val isSubmitting: Boolean = false,
     val isAuthenticating: Boolean = false,
+    val isRestoringSession: Boolean = true,
     val failNextSubmission: Boolean = false,
     val formError: String? = null,
     val authError: String? = null,
@@ -100,7 +96,6 @@ class AppViewModel(
     private var submissionGeneration = 0L
 
     init {
-        refreshPublicContent()
         restoreSession()
     }
 
@@ -110,12 +105,11 @@ class AppViewModel(
             _uiState.update { it.copy(message = "Esperá a que termine el envío antes de salir.") }
             return
         }
-        if (destination == AppDestination.MyReports && state.user == null) {
-            navigate(AppDestination.Login(AppDestination.MyReports))
-            return
-        }
-        if (destination == AppDestination.Profile && state.user == null) {
-            navigate(AppDestination.Login(AppDestination.Profile))
+        if (state.user == null &&
+            destination !is AppDestination.Login &&
+            destination !is AppDestination.Register
+        ) {
+            navigate(AppDestination.Login(destination))
             return
         }
         if (state.destination == AppDestination.CreateReport &&
@@ -134,8 +128,7 @@ class AppViewModel(
                     replace -> it.backStack
                     destination == AppDestination.Map -> emptyList()
                     destination == AppDestination.CreateReport ||
-                        destination == AppDestination.MyReports ||
-                        destination == AppDestination.Tracking -> emptyList()
+                        destination == AppDestination.MyReports -> emptyList()
                     else -> it.backStack + it.destination
                 },
                 dialog = null,
@@ -160,6 +153,19 @@ class AppViewModel(
         }
         if (state.isSubmitting) {
             _uiState.update { it.copy(message = "Esperá a que termine el envío antes de salir.") }
+            return
+        }
+        if (state.user == null && state.destination is AppDestination.Login) {
+            return
+        }
+        if (state.user == null && state.destination is AppDestination.Register) {
+            _uiState.update {
+                it.copy(
+                    destination = AppDestination.Login(state.destination.returnTo),
+                    backStack = emptyList(),
+                    authError = null,
+                )
+            }
             return
         }
         if (state.destination == AppDestination.CreateReport && state.draft.isDirty) {
@@ -202,14 +208,6 @@ class AppViewModel(
         if (it.isSubmitting) it else it.copy(draft = transform(it.draft), formError = null)
     }
 
-    fun setSubmissionMode(mode: SubmissionMode) {
-        if (_uiState.value.isSubmitting) return
-        _uiState.update { it.copy(draft = it.draft.copy(submissionMode = mode)) }
-        if (mode == SubmissionMode.Account && _uiState.value.user == null) {
-            navigate(AppDestination.Login(AppDestination.CreateReport))
-        }
-    }
-
     fun confirmLocation(point: MapPoint, label: String) {
         _uiState.update {
             it.copy(
@@ -227,12 +225,11 @@ class AppViewModel(
             _uiState.update { it.copy(formError = "Completá el título, la categoría y la ubicación.") }
             return
         }
-        if (state.draft.submissionMode == SubmissionMode.Account && state.user == null) {
+        val submittedUser = state.user ?: run {
             navigate(AppDestination.Login(AppDestination.CreateReport))
             return
         }
         val submittedDraft = state.draft
-        val submittedUser = state.user
         val submittedCategories = state.categories
         val submissionId = ++submissionGeneration
         _uiState.update { it.copy(isSubmitting = true, formError = null) }
@@ -249,8 +246,7 @@ class AppViewModel(
                 }
                 return@launch
             }
-            val sessionIsStillValid = submittedDraft.submissionMode == SubmissionMode.Anonymous ||
-                latest.user?.id == submittedUser?.id
+            val sessionIsStillValid = latest.user?.id == submittedUser.id
             if (latest.destination != AppDestination.CreateReport || !sessionIsStillValid) {
                 _uiState.update { it.copy(isSubmitting = false) }
                 return@launch
@@ -261,7 +257,6 @@ class AppViewModel(
                     return@launch
                 }
             val sequence = latest.reports.size + 2050
-            val isAnonymous = submittedDraft.submissionMode == SubmissionMode.Anonymous
             val report = Report(
                 id = "REP-$sequence",
                 title = submittedDraft.title.trim(),
@@ -271,9 +266,7 @@ class AppViewModel(
                 location = submittedDraft.location,
                 point = submittedDraft.point,
                 createdAtLabel = "hace un momento",
-                submissionMode = submittedDraft.submissionMode,
-                ownerId = if (isAnonymous) null else submittedUser?.id,
-                trackingCode = if (isAnonymous) opaqueCode(sequence) else null,
+                ownerId = submittedUser.id,
                 hasPhoto = submittedDraft.hasPhoto,
                 history = listOf(
                     StatusEvent(
@@ -303,7 +296,7 @@ class AppViewModel(
                 throw error
             } catch (error: Throwable) {
                 if (submissionId == submissionGeneration) {
-                    if (submittedDraft.submissionMode == SubmissionMode.Account && error.isUnauthorized()) {
+                    if (error.isUnauthorized()) {
                         _uiState.update {
                             it.copy(
                                 user = null,
@@ -391,8 +384,10 @@ class AppViewModel(
                 message = "Sesión iniciada.",
                 authError = null,
                 isAuthenticating = false,
+                isRestoringSession = false,
             )
         }
+        refreshPublicContent()
         refreshMyReports()
     }
 
@@ -410,67 +405,18 @@ class AppViewModel(
         _uiState.update {
             it.copy(
                 user = null,
-                destination = AppDestination.Map,
+                destination = AppDestination.Login(AppDestination.Map),
                 backStack = emptyList(),
-                trackedReportId = null,
+                draft = ReportDraft(),
                 myReportsFilters = ReportFilters(),
                 authError = null,
                 formError = null,
                 isSubmitting = false,
                 isAuthenticating = false,
+                isRestoringSession = false,
                 message = message,
                 dialog = null,
             )
-        }
-    }
-
-    fun setTrackingQuery(value: String) = _uiState.update {
-        it.copy(trackingQuery = value, trackingError = null, trackedReportId = null)
-    }
-
-    fun trackReport() {
-        if (_uiState.value.isTracking) return
-        _uiState.update { it.copy(isTracking = true, trackingError = null, trackedReportId = null) }
-        viewModelScope.launch {
-            try {
-                val current = _uiState.value
-                val tracked = reportRepository.getReportByTrackingCode(
-                    code = current.trackingQuery.trim(),
-                    categories = current.categories,
-                )
-                val existing = current.report(tracked.id)
-                val merged = if (existing == null) {
-                    tracked
-                } else {
-                    tracked.copy(
-                        title = existing.title,
-                        description = existing.description,
-                        category = existing.category,
-                        location = existing.location,
-                        point = existing.point,
-                        hasPhoto = existing.hasPhoto || tracked.hasPhoto,
-                    )
-                }
-                _uiState.update {
-                    it.copy(
-                        reports = listOf(merged) + it.reports.filterNot { report -> report.id == merged.id },
-                        isTracking = false,
-                        trackedReportId = merged.id,
-                        trackingError = null,
-                    )
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                _uiState.update {
-                    it.copy(
-                        isTracking = false,
-                        trackingError = error.userFacingMessage(
-                            "No pudimos consultar ese código. Revisalo e intentá nuevamente.",
-                        ),
-                    )
-                }
-            }
         }
     }
 
@@ -529,20 +475,8 @@ class AppViewModel(
         )
     }
 
-    fun openTrackingFor(report: Report) {
-        val code = report.trackingCode ?: return
-        _uiState.update {
-            it.copy(
-                trackingQuery = code,
-                trackedReportId = report.id,
-                trackingError = null,
-                destination = AppDestination.Tracking,
-                backStack = listOf(AppDestination.Confirmation(report.id)),
-            )
-        }
-    }
-
     private fun refreshPublicContent() {
+        if (_uiState.value.user == null) return
         _uiState.update {
             it.copy(
                 contentLoadState = ContentLoadState.Loading,
@@ -580,13 +514,37 @@ class AppViewModel(
     private fun restoreSession() {
         viewModelScope.launch {
             try {
-                val restoredUser = authRepository.restoreSession() ?: return@launch
-                _uiState.update { it.copy(user = restoredUser) }
-                refreshMyReports()
+                val restoredUser = authRepository.restoreSession()
+                if (restoredUser == null) {
+                    _uiState.update {
+                        it.copy(
+                            destination = AppDestination.Login(AppDestination.Map),
+                            isRestoringSession = false,
+                        )
+                    }
+                } else {
+                    _uiState.update {
+                        it.copy(
+                            user = restoredUser,
+                            destination = AppDestination.Map,
+                            backStack = emptyList(),
+                            isRestoringSession = false,
+                            authError = null,
+                        )
+                    }
+                    refreshPublicContent()
+                    refreshMyReports()
+                }
             } catch (error: CancellationException) {
                 throw error
-            } catch (_: Throwable) {
-                // Se conserva el token para reintentar cuando vuelva la conexión.
+            } catch (error: Throwable) {
+                _uiState.update {
+                    it.copy(
+                        destination = AppDestination.Login(AppDestination.Map),
+                        isRestoringSession = false,
+                        authError = error.userFacingMessage("No pudimos validar la sesión guardada. Iniciá sesión nuevamente."),
+                    )
+                }
             }
         }
     }
@@ -625,6 +583,7 @@ class AppViewModel(
                             myReportsLoadState = ContentLoadState.Ready,
                             myReportsLoadError = null,
                             authError = "La sesión venció. Iniciá sesión nuevamente.",
+                            isRestoringSession = false,
                         )
                     }
                 } else {
@@ -649,9 +608,7 @@ class AppViewModel(
                     detail
                 } else {
                     detail.copy(
-                        submissionMode = existing.submissionMode,
                         ownerId = existing.ownerId,
-                        trackingCode = existing.trackingCode,
                     )
                 }
                 _uiState.update {
@@ -717,17 +674,6 @@ class AppViewModel(
         }
     }
 
-    private fun opaqueCode(seed: Int): String {
-        val alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
-        val raw = buildString {
-            var value = seed * 7919
-            repeat(12) {
-                append(alphabet[value.mod(alphabet.length)])
-                value = (value * 37 + 17).ushr(1)
-            }
-        }
-        return raw.chunked(4).joinToString("-")
-    }
 }
 
 private fun Throwable.userFacingMessage(fallback: String): String = toUserFacingMessage(fallback)
