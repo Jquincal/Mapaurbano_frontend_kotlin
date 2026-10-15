@@ -1,6 +1,5 @@
 package com.mapaurbano.mobile.feature.map
 
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,10 +12,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AddLocationAlt
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.ClearAll
 import androidx.compose.material.icons.rounded.List
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.MyLocation
@@ -24,7 +26,10 @@ import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -34,13 +39,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -214,20 +220,14 @@ private fun MapReadyContent(
                 onClick = { onPresentationChange(MapPresentation.List) },
             )
             Spacer(Modifier.weight(1f))
-            StitchChip(
-                label = "Filtros",
-                selected = filters.status != null || filters.categoryId != null,
-                icon = Icons.Rounded.Tune,
-                selectedColor = MuniColors.Orange,
-                onClick = onClearFilters,
+            FilterMenu(
+                filters = filters,
+                categories = categories,
+                onStatusFilterChange = onStatusFilterChange,
+                onCategoryFilterChange = onCategoryFilterChange,
+                onClearFilters = onClearFilters,
             )
         }
-        FilterChips(
-            filters = filters,
-            categories = categories,
-            onStatusFilterChange = onStatusFilterChange,
-            onCategoryFilterChange = onCategoryFilterChange,
-        )
 
         if (presentation == MapPresentation.Map) {
             Box {
@@ -312,36 +312,119 @@ private fun MapReadyContent(
 }
 
 @Composable
-private fun FilterChips(
+private fun FilterMenu(
     filters: ReportFilters,
     categories: List<Category>,
     onStatusFilterChange: (ReportStatus?) -> Unit,
     onCategoryFilterChange: (String?) -> Unit,
+    onClearFilters: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .horizontalScroll(rememberScrollState()),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        StitchChip("Todos", selected = filters.status == null, onClick = { onStatusFilterChange(null) })
-        ReportStatus.entries.forEach { status ->
-            StitchChip(
-                label = status.label,
-                selected = filters.status == status,
-                selectedColor = statusAccent(status),
-                onClick = { onStatusFilterChange(if (filters.status == status) null else status) },
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    val activeFilterCount = listOfNotNull(filters.status, filters.categoryId).size
+
+    Box {
+        StitchChip(
+            label = if (activeFilterCount == 0) "Filtros" else "Filtros ($activeFilterCount)",
+            selected = expanded || activeFilterCount > 0,
+            icon = Icons.Rounded.Tune,
+            selectedColor = MuniColors.Orange,
+            onClick = { expanded = !expanded },
+        )
+
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.widthIn(min = 250.dp, max = 320.dp),
+        ) {
+            FilterMenuHeading("Estado")
+            FilterMenuItem(
+                label = "Todos los reportes",
+                selected = filters.status == null,
+                onClick = { onStatusFilterChange(null) },
             )
-        }
-        categories.take(4).forEach { category ->
-            StitchChip(
-                label = category.label,
-                selected = filters.categoryId == category.id,
-                selectedColor = MuniColors.Orange,
-                onClick = { onCategoryFilterChange(if (filters.categoryId == category.id) null else category.id) },
+            ReportStatus.entries.forEach { status ->
+                FilterMenuItem(
+                    label = status.label,
+                    selected = filters.status == status,
+                    onClick = { onStatusFilterChange(status) },
+                )
+            }
+
+            HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+            FilterMenuHeading("Categoría")
+            FilterMenuItem(
+                label = "Todas las categorías",
+                selected = filters.categoryId == null,
+                onClick = { onCategoryFilterChange(null) },
             )
+            categories.forEach { category ->
+                FilterMenuItem(
+                    label = category.label,
+                    selected = filters.categoryId == category.id,
+                    onClick = { onCategoryFilterChange(category.id) },
+                )
+            }
+
+            if (activeFilterCount > 0) {
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+                DropdownMenuItem(
+                    text = {
+                        Text(
+                            text = "Limpiar filtros",
+                            color = MaterialTheme.colorScheme.error,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Rounded.ClearAll,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    },
+                    onClick = {
+                        onClearFilters()
+                        expanded = false
+                    },
+                )
+            }
         }
     }
+}
+
+@Composable
+private fun FilterMenuHeading(label: String) {
+    Text(
+        text = label.uppercase(),
+        style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+    )
+}
+
+@Composable
+private fun FilterMenuItem(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    DropdownMenuItem(
+        text = { Text(label) },
+        leadingIcon = {
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            } else {
+                Spacer(Modifier.size(24.dp))
+            }
+        },
+        onClick = onClick,
+        modifier = Modifier.semantics { this.selected = selected },
+    )
 }
 
 @Composable
@@ -425,9 +508,3 @@ private fun EmptyMapResults(
 
 private val ReportFilters.hasActiveFilters: Boolean
     get() = query.isNotBlank() || status != null || categoryId != null
-
-private fun statusAccent(status: ReportStatus): Color = when (status) {
-    ReportStatus.Pending -> MuniColors.Orange
-    ReportStatus.InProgress -> MuniColors.PrimaryBright
-    ReportStatus.Resolved -> MuniColors.Green700
-}
