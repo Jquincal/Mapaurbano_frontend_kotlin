@@ -1,6 +1,12 @@
 package com.mapaurbano.mobile
 
 import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
+import java.io.File
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Arrangement
@@ -59,6 +65,17 @@ fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
     val state by appViewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = LocalContext.current
+
+    var cameraUri by rememberSaveable { mutableStateOf<String?>(null) }
+    val gallery = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        uri?.let { appViewModel.attachPhoto(it.toString()) }
+    }
+    val camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        val uri = cameraUri
+        cameraUri = null
+        if (success && uri != null) appViewModel.attachPhoto(uri)
+        else uri?.let { context.contentResolver.delete(Uri.parse(it), null, null) }
+    }
 
     var dni by rememberSaveable { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -154,13 +171,25 @@ fun MapaUrbanoApp(appViewModel: AppViewModel = viewModel()) {
         onKeepDraft = appViewModel::keepDraftAndContinue,
         onDiscardDraft = appViewModel::discardDraftAndContinue,
         onDeactivate = appViewModel::deactivateAccount,
-        onAttachPhoto = { appViewModel.setPhoto(true) },
-        onPhotoInvalidType = { appViewModel.setPhoto(false, PhotoIssue.InvalidType) },
-        onPhotoTooLarge = { appViewModel.setPhoto(false, PhotoIssue.TooLarge) },
-        onPhotoPermissionDenied = { appViewModel.setPhoto(false, PhotoIssue.PermissionDenied) },
-        onSimulateContentError = appViewModel::simulateContentError,
-        onFailNextSubmission = appViewModel::failNextSubmission,
-        onSimulateSessionExpiry = appViewModel::simulateSessionExpiry,
+        onGallery = {
+            appViewModel.dismissDialog()
+            try { gallery.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }
+            catch (_: Exception) { appViewModel.setPhoto(false, PhotoIssue.PermissionDenied) }
+        },
+        onCamera = {
+            appViewModel.dismissDialog()
+            try {
+                val directory = File(context.cacheDir, "camera").apply { mkdirs() }
+                val file = File.createTempFile("reporte-", ".jpg", directory)
+                val uri = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+                cameraUri = uri.toString()
+                camera.launch(uri)
+            } catch (_: Exception) {
+                cameraUri?.let { context.contentResolver.delete(Uri.parse(it), null, null) }
+                cameraUri = null
+                appViewModel.setPhoto(false, PhotoIssue.PermissionDenied)
+            }
+        },
     )
 }
 
@@ -219,10 +248,15 @@ private fun DestinationContent(
             onSubmit = viewModel::submitReport,
             onBack = viewModel::back,
             isSubmitting = state.isSubmitting,
+            isReadingPhoto = state.isReadingPhoto,
         )
 
         AppDestination.MyReports -> MyReportsScreen(
             reports = state.ownedReports,
+            hasMore = state.nextCursor != null,
+            loadingMore = state.isLoadingMore,
+            paginationError = state.paginationError,
+            onLoadMore = viewModel::loadMoreReports,
             categories = state.categories,
             filters = state.myReportsFilters,
             contentState = when (state.myReportsLoadState) {
@@ -248,7 +282,7 @@ private fun DestinationContent(
         AppDestination.Profile -> state.user?.let { user ->
             ProfileScreen(
                 user = user,
-                message = state.message,
+                message = state.detailError,
                 onBack = viewModel::back,
                 onEditProfile = { viewModel.showDialog(AppDialog.FutureFeature("Editar perfil")) },
                 onChangePassword = { viewModel.showDialog(AppDialog.FutureFeature("Cambiar contraseña")) },
@@ -307,6 +341,7 @@ private fun DestinationContent(
             } else {
                 ReportDetailScreen(
                     report = report,
+                    message = state.detailError,
                     showPrivateInformation = report.ownerId != null && state.user?.id == report.ownerId,
                     onBack = viewModel::back,
                     onViewOnMap = viewModel::focusReportOnMap,
@@ -364,25 +399,18 @@ private fun AppDialogHost(
     onKeepDraft: () -> Unit,
     onDiscardDraft: () -> Unit,
     onDeactivate: () -> Unit,
-    onAttachPhoto: () -> Unit,
-    onPhotoInvalidType: () -> Unit,
-    onPhotoTooLarge: () -> Unit,
-    onPhotoPermissionDenied: () -> Unit,
-    onSimulateContentError: () -> Unit,
-    onFailNextSubmission: () -> Unit,
-    onSimulateSessionExpiry: () -> Unit,
+    onGallery: () -> Unit,
+    onCamera: () -> Unit,
 ) {
     when (dialog) {
         null -> Unit
         AppDialog.Help -> AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Ayuda y estados de demostración") },
+            title = { Text("Ayuda") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Iniciá sesión para explorar el mapa, crear reportes vinculados a tu cuenta y consultar sus avances desde Mis reportes.")
-                    TextButton(onClick = onSimulateContentError) { Text("Simular error de carga") }
-                    TextButton(onClick = onFailNextSubmission) { Text("Simular error del próximo envío") }
-                    TextButton(onClick = onSimulateSessionExpiry) { Text("Simular sesión vencida") }
+                    Text("El mapa muestra los reportes de tu cuenta. Podés adjuntar una foto JPEG, PNG o WebP de hasta 5 MB.")
                 }
             },
             confirmButton = { TextButton(onClick = onDismiss) { Text("Cerrar") } },
@@ -413,14 +441,12 @@ private fun AppDialogHost(
         )
         AppDialog.PhotoPicker -> AlertDialog(
             onDismissRequest = onDismiss,
-            title = { Text("Adjuntar foto de demostración") },
+            title = { Text("Adjuntar fotografía") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("Elegí un resultado para recorrer los estados del selector sin acceder a archivos reales.")
-                    TextButton(onClick = onAttachPhoto) { Text("Adjuntar foto válida") }
-                    TextButton(onClick = onPhotoInvalidType) { Text("Simular tipo de archivo inválido") }
-                    TextButton(onClick = onPhotoTooLarge) { Text("Simular archivo mayor a 5 MB") }
-                    TextButton(onClick = onPhotoPermissionDenied) { Text("Simular permiso denegado") }
+                    Text("JPEG, PNG o WebP. Máximo 5 MB y 12000 píxeles por lado.")
+                    TextButton(onClick = onGallery) { Text("Elegir de la galería") }
+                    TextButton(onClick = onCamera) { Text("Tomar una foto") }
                 }
             },
             confirmButton = { TextButton(onClick = onDismiss) { Text("Cancelar") } },
@@ -452,7 +478,7 @@ private fun UnavailableReportScreen(onBack: () -> Unit) {
         title = "Reporte no disponible",
         onBack = onBack,
     ) {
-        NoticeCard("El reporte ya no está disponible o fue retirado de la vista pública.")
+        NoticeCard("El reporte no está disponible para esta cuenta.")
         Button(
             onClick = onBack,
             modifier = Modifier

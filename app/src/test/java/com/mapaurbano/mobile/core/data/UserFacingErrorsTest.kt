@@ -17,7 +17,7 @@ class UserFacingErrorsTest {
     @Test
     fun `http failures are explained by status`() {
         val expectedMessages = mapOf(
-            400 to "El servidor rechazó los datos. Revisá los campos e intentá nuevamente.",
+            400 to "Respuesta del servidor",
             401 to "La sesión no es válida o venció. Iniciá sesión nuevamente.",
             409 to "La operación entra en conflicto con información existente.",
             429 to "Se alcanzó el límite de solicitudes. Esperá unos minutos e intentá nuevamente.",
@@ -30,6 +30,12 @@ class UserFacingErrorsTest {
                 ApiException(status, "Respuesta del servidor").toUserFacingMessage("Error"),
             )
         }
+    }
+
+    @Test
+    fun `server validation identifies the rejected field`() {
+        val error = ApiException(400, "Datos inválidos", details = listOf(com.mapaurbano.mobile.core.network.ApiErrorDetailDto("title", "Máximo 150 caracteres")))
+        assertEquals("title: Máximo 150 caracteres", error.toUserFacingMessage("Error"))
     }
 
     @Test

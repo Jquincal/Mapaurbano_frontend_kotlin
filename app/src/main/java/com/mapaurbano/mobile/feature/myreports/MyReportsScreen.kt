@@ -47,6 +47,10 @@ import com.mapaurbano.mobile.feature.common.StitchSearchField
 @Composable
 fun MyReportsScreen(
     reports: List<Report>,
+    hasMore: Boolean = false,
+    loadingMore: Boolean = false,
+    paginationError: String? = null,
+    onLoadMore: () -> Unit = {},
     categories: List<Category>,
     filters: ReportFilters,
     modifier: Modifier = Modifier,
@@ -135,6 +139,10 @@ fun MyReportsScreen(
                 }
             }
 
+            paginationError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            if (hasMore) TextButton(onClick = onLoadMore, enabled = !loadingMore) {
+                Text(if (loadingMore) "Cargando…" else "Cargar más reportes")
+            }
             when {
                 contentState != ContentState.Ready -> ContentStatePanel(state = contentState, onRetry = onRetry)
                 visibleReports.isEmpty() -> StitchCard(containerColor = MuniColors.SurfaceContainerLow) {

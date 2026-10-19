@@ -7,7 +7,7 @@ internal fun Throwable.toUserFacingMessage(fallback: String): String {
     val apiError = this as? ApiException
     if (apiError != null) {
         return when (apiError.statusCode) {
-            400 -> "El servidor rechazó los datos. Revisá los campos e intentá nuevamente."
+            400 -> apiError.details.takeIf { it.isNotEmpty() }?.joinToString("\n") { listOfNotNull(it.field, it.reason).joinToString(": ") } ?: apiError.message.takeIf { it.isNotBlank() } ?: "El servidor rechazó los datos. Revisá los campos e intentá nuevamente."
             401 -> "La sesión no es válida o venció. Iniciá sesión nuevamente."
             403 -> "No tenés permiso para realizar esta acción."
             404 -> "No encontramos la información solicitada."

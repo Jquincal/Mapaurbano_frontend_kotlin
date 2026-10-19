@@ -1,51 +1,48 @@
-# Integración con MapaUrbano backend
+# Integración Android con el backend
 
-Backend de referencia: `https://github.com/ZeroVeCC/MapaUrbano-backend-ktor.git`.
+Contrato aplicado el 18/10/2026: OpenAPI de `ZeroVeCC/MapaUrbano-backend-ktor`, funcionalidad de `34d219e`, documentación de `907e0c3`.
 
-## Funciones conectadas
+| Uso | Método y ruta bajo /api/v1 | Autorización |
+|---|---|---|
+| Categorías activas | GET /categories | Pública |
+| Registro / login | POST /users/register · POST /users/login | DNI + contraseña |
+| Perfil / baja | GET /users/me · DELETE /users/me | Bearer |
+| Logout | POST /users/logout | Bearer |
+| Mapa y Mis reportes | GET /users/me/reports?cursor=&limit=50 | Bearer |
+| Detalle e historial | GET /users/me/reports/{id} | Bearer, solo propio |
+| Fotografía | GET /users/me/reports/{id}/image | Bearer, solo propia |
+| Crear reporte | POST /reports | Bearer y multipart |
 
-| Función móvil | Endpoint | Estado |
-| --- | --- | --- |
-| Categorías activas | `GET /api/v1/categories` | Integrada |
-| Marcadores y lista del mapa | `GET /api/v1/reports` | Integrada |
-| Detalle público | `GET /api/v1/reports/{id}` | Integrada |
-| Registro con DNI | `POST /api/v1/users/register` | Integrada |
-| Inicio de sesión con DNI | `POST /api/v1/users/login` | Integrada |
-| Recuperar sesión y perfil | `GET /api/v1/users/me` | Integrada |
-| Cerrar sesión | `POST /api/v1/users/logout` | Integrada |
-| Desactivar cuenta | `DELETE /api/v1/users/me` | Integrada |
-| Crear reporte con cuenta | `POST /api/v1/reports` + bearer | Integrada |
-| Mis reportes | `GET /api/v1/users/me/reports` | Integrada (primera página) |
+Las lecturas públicas de reportes fueron retiradas. La app carga únicamente los reportes del usuario autenticado. No se mezclan resultados entre cuentas ni se reemplazan fallos por datos de demostración. `DemoContent` solo se utiliza en fakes y previews.
 
-El frontend utiliza directamente las coordenadas geográficas del backend para ubicar marcadores en OpenFreeMap mediante MapLibre Native. La consulta pública usa el área de Mendoza (`-32.96/-68.93` a `-32.82/-68.76`) y el backend devuelve como máximo 50 elementos. Limitar el área reduce la consulta espacial, aunque el backend `cb698f8` también corrigió el listado sin límites y la decodificación persistente de coordenadas PostGIS.
+## Sesiones
 
-## Configuración local
+El token se conserva en DataStore. La restauración ocurre antes de entrar al mapa. Logout, desactivación y 401 eliminan reportes, imágenes, filtros, navegación y borrador. Se conserva el borrador únicamente cuando vence la sesión durante el envío. Las respuestas tardías se descartan al cambiar o cerrar sesión. Al autenticarse comienza un estado privado nuevo.
 
-La propiedad `MAPA_URBANO_API_BASE_URL` se puede declarar como propiedad de Gradle o en `local.properties`:
+## Lista, detalle y fotografías
 
-```properties
-MAPA_URBANO_API_BASE_URL=http://192.168.1.39:8080/api/v1/
-```
+`nextCursor` se conserva como texto opaco y se envía como parámetro. «Cargar más reportes» agrega elementos sin duplicar IDs; finaliza con null y permite reintentar un error de página. Si el servidor repite un cursor, se detiene la carga y se informa el problema.
 
-El permiso de tráfico HTTP sin TLS está habilitado únicamente en la variante `debug`, para poder probar el servidor local. Una distribución de producción debe usar HTTPS.
+Las categorías se resuelven por `categorySlug`. El detalle incorpora descripción, nombre de categoría, historial y coordenadas; se descartan coordenadas no finitas o fuera de rango. El mapa permanece visible aun sin coincidencias.
 
-## Sesión ciudadana
+La galería usa Photo Picker; la cámara usa TakePicture y FileProvider limitado a una carpeta temporal privada. Se leen URIs con permisos temporales, sin convertirlas en rutas de almacenamiento compartido. El adjunto se mantiene en memoria, se valida MIME declarado/decodificado, tamaño máximo 5 MiB y dimensiones de 1 a 12000 píxeles por lado. Los archivos de cámara se borran después de leerlos o cancelar. Los formatos admitidos son JPEG, PNG y WebP; los archivos que superan el límite se rechazan conservando los campos del borrador.
 
-El acceso usa DNI y contraseña y es obligatorio antes de entrar al mapa o usar cualquier función principal. El token bearer se guarda en DataStore, se restaura al abrir la aplicación y se elimina al cerrar sesión, desactivar la cuenta o recibir una sesión inválida en una llamada protegida. Las cuentas se registran con nombre, DNI y contraseña; el correo ya no forma parte de este contrato.
+El multipart envía `title`, `description`, `categorySlug`, `latitude`, `longitude`, `submissionMode=ACCOUNT` e `image` opcional con bytes y tipo real. La imagen del detalle se descarga con Bearer, se conserva como máximo la del detalle activo y se decodifica reducida a 1200 píxeles. No hay caché persistente de imágenes.
 
-El frontend no ofrece creación ni seguimiento anónimos. Cada `POST /reports` exige un token bearer, envía `submissionMode=ACCOUNT` y vincula el reporte con la sesión activa. Los avances se consultan desde `GET /users/me/reports`.
+## Errores
 
-Para que esta regla sea una garantía de seguridad y no solamente una restricción de interfaz, el backend también debe rechazar cualquier `POST /reports` sin bearer válido y cualquier intento de usar `submissionMode=ANONYMOUS`. Ese cambio corresponde al equipo del backend y no se realizó desde este repositorio.
+400 muestra validaciones del servidor; 401 limpia sesión; 404 indica información no disponible; 409, 429 y 5xx tienen mensajes distintos. Los errores de conexión indican servidor inaccesible. Una carga fallida conserva datos únicamente de la misma sesión e informa el error; nunca simula un éxito.
 
-## Pendientes del contrato del backend
+## URL del backend
 
-- `GET /users/me/reports` devuelve actualmente el identificador de categoría dentro de `categorySlug`; el cliente acepta ambos valores para mantener la compatibilidad.
-- La lista de Mis reportes consume por ahora la primera página (hasta 50 elementos). Se agregará paginación cuando el cursor del backend esté validado de punta a punta.
-- `GET /users/me/reports/{id}` todavía responde como no implementado; el detalle se consulta mediante la ruta pública.
-- Los DTO públicos devuelven `hasImage = false` y el historial vacío en la implementación actual; el cliente ya admite ambos campos cuando el backend los complete.
-- La interfaz permite seleccionar una foto de ejemplo, pero aún no conserva bytes reales para adjuntarlos al multipart.
-- El cursor de la lista pública está presente en el contrato, pero la consulta del backend todavía no lo aplica; el cliente evita paginar para no repetir indefinidamente la primera página.
+Configurar `MAPA_URBANO_API_BASE_URL` en `local.properties`, ignorado por Git, o mediante propiedad Gradle. La URL queda incorporada al compilar:
 
-## Separación para pruebas
+- Emulador: `http://10.0.2.2:8080/api/v1/` (predeterminada).
+- Teléfono USB: `http://127.0.0.1:8080/api/v1/` y `adb reverse tcp:8080 tcp:8080`.
+- Teléfono por Wi-Fi: `http://IP_DE_LA_COMPUTADORA:8080/api/v1/`; ambos dispositivos deben compartir una red que permita el puerto.
 
-`RemoteReportRepository` y `RemoteAuthRepository` son las implementaciones usadas por la aplicación. Las pruebas unitarias inyectan repositorios falsos, por lo que son deterministas y no requieren red ni una base de datos activa.
+HTTP está habilitado solo en debug. Producción requiere HTTPS. Backend, panel y teléfono deben utilizar la misma API y la misma base de pruebas.
+
+## Validación
+
+`./scripts/validate.sh` ejecuta unitarias con repositorios falsos/MockEngine, Lint, APK y JaCoCo. Los tests no necesitan backend ni base de datos. La prueba HTTP real del entorno es complementaria; no demuestra por sí sola el funcionamiento del selector de fotos ni de la cámara del dispositivo.

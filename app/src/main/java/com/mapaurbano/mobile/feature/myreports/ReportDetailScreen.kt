@@ -94,28 +94,7 @@ fun ReportDetailScreen(
         Text(report.description, style = MaterialTheme.typography.bodyLarge)
 
         if (report.hasPhoto) {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        color = MaterialTheme.colorScheme.surfaceVariant,
-                        shape = MaterialTheme.shapes.large,
-                    )
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Image,
-                        contentDescription = "Foto adjunta al reporte",
-                        modifier = Modifier.size(48.dp),
-                    )
-                    Text("Foto adjunta", style = MaterialTheme.typography.labelLarge)
-                }
-            }
+            com.mapaurbano.mobile.feature.common.ReportPhoto(report.imageBytes, "${report.ownerId}/${report.id}")
         }
 
         SectionTitle(

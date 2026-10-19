@@ -16,6 +16,8 @@ import io.ktor.client.request.parameter
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
+import io.ktor.http.HttpHeaders
+import io.ktor.http.Headers
 import io.ktor.http.ContentType
 import io.ktor.http.HttpStatusCode
 import io.ktor.http.contentType
@@ -27,6 +29,7 @@ class ApiException(
     val statusCode: Int,
     override val message: String,
     val code: String? = null,
+    val details: List<ApiErrorDetailDto> = emptyList(),
 ) : Exception(message)
 
 class MapaUrbanoApi(
@@ -62,15 +65,16 @@ class MapaUrbanoApi(
 
     suspend fun getCurrentUser(): UserProfileDto {
         val token = requireToken()
-        return client.get(url("users/me")) { bearerAuth(token) }.decodeAuthorized()
+        return client.get(url("users/me")) { bearerAuth(token) }.decodeAuthorized(token)
     }
 
-    suspend fun getCurrentUserReports(): CursorPageDto<ReportSummaryDto> {
+    suspend fun getCurrentUserReports(cursor: String? = null, limit: Int = 50): CursorPageDto<ReportSummaryDto> {
         val token = requireToken()
         return client.get(url("users/me/reports")) {
             bearerAuth(token)
-            parameter("limit", 50)
-        }.decodeAuthorized()
+            parameter("limit", limit.coerceIn(1, 100))
+            cursor?.let { parameter("cursor", it) }
+        }.decodeAuthorized(token)
     }
 
     suspend fun logout() {
@@ -98,16 +102,17 @@ class MapaUrbanoApi(
     suspend fun getCategories(): List<CategoryDto> =
         client.get(url("categories")).decodeOrThrow()
 
-    suspend fun getPublicReports(): CursorPageDto<ReportSummaryDto> =
-        client.get(url("reports")) {
-            parameter("minLat", MENDOZA_MIN_LATITUDE)
-            parameter("minLng", MENDOZA_MIN_LONGITUDE)
-            parameter("maxLat", MENDOZA_MAX_LATITUDE)
-            parameter("maxLng", MENDOZA_MAX_LONGITUDE)
-        }.decodeOrThrow()
+    suspend fun getCurrentUserReport(id: String): ReportDetailDto {
+        val token = requireToken()
+        return client.get(url("users/me/reports/$id")) { bearerAuth(token) }.decodeAuthorized(token)
+    }
 
-    suspend fun getPublicReport(id: String): ReportDetailDto =
-        client.get(url("reports/$id")).decodeOrThrow()
+    suspend fun getCurrentUserReportImage(id: String): ByteArray {
+        val token = requireToken()
+        return client.get(url("users/me/reports/$id/image")) { bearerAuth(token) }.decodeAuthorized(token)
+    }
+
+    suspend fun clearLocalSession() = sessionStore.clearToken()
 
     suspend fun createReport(report: Report): CreateReportResponseDto {
         val token = requireToken()
@@ -122,11 +127,19 @@ class MapaUrbanoApi(
                         append("latitude", report.point.latitude.toString())
                         append("longitude", report.point.longitude.toString())
                         append("submissionMode", "ACCOUNT")
+                        report.photo?.let { photo ->
+                            require(photo.bytes.size <= 5 * 1024 * 1024) { "La foto supera 5 MB." }
+                            val extension = when (photo.mimeType) { "image/jpeg" -> "jpg"; "image/png" -> "png"; "image/webp" -> "webp"; else -> error("Formato de foto inválido") }
+                            append("image", photo.bytes, Headers.build {
+                                append(HttpHeaders.ContentType, photo.mimeType)
+                                append(HttpHeaders.ContentDisposition, "filename=\"evidencia.$extension\"")
+                            })
+                        }
                     },
                 ),
             )
         }
-        return response.decodeAuthorized()
+        return response.decodeAuthorized(token)
     }
 
     private suspend fun requireToken(): String = sessionStore.readToken()
@@ -136,10 +149,10 @@ class MapaUrbanoApi(
             code = "MISSING_SESSION",
         )
 
-    private suspend inline fun <reified T> HttpResponse.decodeAuthorized(): T = try {
+    private suspend inline fun <reified T> HttpResponse.decodeAuthorized(token: String): T = try {
         decodeOrThrow()
     } catch (error: ApiException) {
-        if (error.statusCode == HttpStatusCode.Unauthorized.value) {
+        if (error.statusCode == HttpStatusCode.Unauthorized.value && sessionStore.readToken() == token) {
             sessionStore.clearToken()
         }
         throw error
@@ -147,12 +160,7 @@ class MapaUrbanoApi(
 
     private fun url(path: String): String = "${baseUrl.trimEnd('/')}/${path.trimStart('/')}"
 
-    private companion object {
-        const val MENDOZA_MIN_LATITUDE = -32.96
-        const val MENDOZA_MAX_LATITUDE = -32.82
-        const val MENDOZA_MIN_LONGITUDE = -68.93
-        const val MENDOZA_MAX_LONGITUDE = -68.76
-    }
+
 }
 
 private fun defaultHttpClient(): HttpClient = HttpClient(OkHttp) {
@@ -175,6 +183,7 @@ private suspend inline fun <reified T> HttpResponse.decodeOrThrow(): T {
         statusCode = status.value,
         message = apiError?.message ?: defaultMessage(status),
         code = apiError?.code,
+        details = apiError?.details.orEmpty(),
     )
 }
 
@@ -186,6 +195,7 @@ private suspend fun HttpResponse.ensureSuccessOrThrow() {
         statusCode = status.value,
         message = apiError?.message ?: defaultMessage(status),
         code = apiError?.code,
+        details = apiError?.details.orEmpty(),
     )
 }
 

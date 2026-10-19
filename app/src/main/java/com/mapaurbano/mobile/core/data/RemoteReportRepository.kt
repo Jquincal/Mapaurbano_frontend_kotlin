@@ -3,6 +3,7 @@ package com.mapaurbano.mobile.core.data
 import com.mapaurbano.mobile.core.model.Category
 import com.mapaurbano.mobile.core.model.MapPoint
 import com.mapaurbano.mobile.core.model.Report
+import com.mapaurbano.mobile.core.model.ReportPage
 import com.mapaurbano.mobile.core.model.ReportStatus
 import com.mapaurbano.mobile.core.model.StatusEvent
 import com.mapaurbano.mobile.core.network.CategoryDto
@@ -26,20 +27,18 @@ class RemoteReportRepository(
         .sortedBy(CategoryDto::sortOrder)
         .map(CategoryDto::toModel)
 
-    override suspend fun getPublicReports(categories: List<Category>): List<Report> =
-        api.getPublicReports().items.map { it.toModel(categories) }
-
-    override suspend fun getPublicReport(id: String, categories: List<Category>): Report =
-        api.getPublicReport(id).toModel(categories)
-
-    override suspend fun getCurrentUserReports(
-        userId: String,
-        categories: List<Category>,
-    ): List<Report> = api.getCurrentUserReports().items.map { summary ->
-        summary.toModel(categories).copy(
-            ownerId = userId,
-        )
+    override suspend fun getCurrentUserReports(userId: String, categories: List<Category>, cursor: String?): ReportPage {
+        val page = api.getCurrentUserReports(cursor)
+        return ReportPage(page.items.filter { validCoordinates(it.latitude, it.longitude) }.map { it.toModel(categories).copy(ownerId = userId) }, page.nextCursor)
     }
+
+    override suspend fun getCurrentUserReport(id: String, userId: String, categories: List<Category>): Report {
+        val detail = api.getCurrentUserReport(id)
+        require(validCoordinates(detail.latitude, detail.longitude)) { "El reporte tiene coordenadas inválidas." }
+        return detail.toModel(categories).copy(ownerId = userId)
+    }
+
+    override suspend fun getCurrentUserReportImage(id: String) = api.getCurrentUserReportImage(id)
 
     override suspend fun createReport(report: Report): Report {
         val response = api.createReport(report)
@@ -47,6 +46,7 @@ class RemoteReportRepository(
             id = response.id,
             status = response.status.toReportStatus(),
             createdAtLabel = response.createdAt.toRelativeLabel(),
+            photo = null,
         )
     }
 }
@@ -101,7 +101,7 @@ private fun StatusHistoryDto.toModel(): StatusEvent {
 }
 
 private fun List<Category>.findCategory(slug: String, name: String? = null): Category =
-    firstOrNull { it.slug == slug || it.id == slug }
+    firstOrNull { it.slug == slug }
         ?: Category(id = slug, slug = slug, label = name ?: slug.replace('-', ' ').replaceFirstChar(Char::uppercase), icon = slug.toCategoryIcon())
 
 private fun String.toReportStatus(): ReportStatus = when (uppercase(Locale.ROOT)) {
@@ -155,3 +155,5 @@ private const val MENDOZA_MIN_LATITUDE = -32.96
 private const val MENDOZA_MAX_LATITUDE = -32.82
 private const val MENDOZA_MIN_LONGITUDE = -68.93
 private const val MENDOZA_MAX_LONGITUDE = -68.76
+
+private fun validCoordinates(lat: Double, lon: Double) = lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0

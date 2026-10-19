@@ -34,6 +34,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -72,11 +73,12 @@ fun ReportFormScreen(
     onSubmit: () -> Unit,
     onBack: () -> Unit,
     isSubmitting: Boolean = false,
+    isReadingPhoto: Boolean = false,
 ) {
     val titleError = validationMessage != null && draft.title.trim().length < 5
     val categoryError = validationMessage != null && draft.categoryId == null
     val locationError = validationMessage != null && draft.location.isBlank()
-    val controlsEnabled = !isSubmitting
+    val controlsEnabled = !isSubmitting && !isReadingPhoto
     val scrollState = rememberSaveable(saver = ScrollState.Saver) { ScrollState(0) }
     val titleFocusRequester = remember { FocusRequester() }
 
@@ -193,6 +195,7 @@ fun ReportFormScreen(
             onChooseLocation = onChooseLocation,
         )
 
+        draft.photo?.let { com.mapaurbano.mobile.feature.common.ReportPhoto(it.bytes, it.uri) }
         PhotoCard(
             hasPhoto = draft.hasPhoto,
             enabled = controlsEnabled,
@@ -208,6 +211,10 @@ fun ReportFormScreen(
             )
         }
 
+        if (draft.photoIssue != null) {
+            TextButton(onClick = onRemovePhoto, enabled = controlsEnabled) { Text("Continuar sin foto") }
+        }
+
         if (validationMessage != null) {
             Text(
                 text = validationMessage,
@@ -218,12 +225,12 @@ fun ReportFormScreen(
         }
 
         StitchPrimaryButton(
-            text = if (isSubmitting) "Enviando..." else "ENVIAR REPORTE",
+            text = if (isReadingPhoto) "Preparando foto…" else if (isSubmitting) "Enviando..." else "ENVIAR REPORTE",
             onClick = onSubmit,
-            enabled = !isSubmitting,
+            enabled = !isSubmitting && !isReadingPhoto,
             icon = if (isSubmitting) null else Icons.Rounded.ArrowForward,
         )
-        if (isSubmitting) {
+        if (isSubmitting || isReadingPhoto) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.CenterHorizontally).size(22.dp),
                 strokeWidth = 2.dp,

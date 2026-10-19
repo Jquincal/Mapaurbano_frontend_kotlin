@@ -9,12 +9,16 @@ object AppContainer {
     lateinit var authRepository: AuthRepository
         private set
 
+    lateinit var photoRepository: PhotoRepository
+        private set
+
     fun initialize(context: Context) {
         if (::reportRepository.isInitialized) return
 
         val api = MapaUrbanoApi(
             sessionStore = DataStoreSessionStore(context.applicationContext),
         )
+        photoRepository = PhotoRepository(context.applicationContext)
         reportRepository = RemoteReportRepository(api)
         authRepository = RemoteAuthRepository(api)
     }

@@ -34,8 +34,8 @@ sealed interface AppDialog {
 data class AppUiState(
     val destination: AppDestination = AppDestination.Login(AppDestination.Map),
     val backStack: List<AppDestination> = emptyList(),
-    val reports: List<Report> = DemoContent.reports,
-    val categories: List<Category> = DemoContent.categories,
+    val reports: List<Report> = emptyList(),
+    val categories: List<Category> = emptyList(),
     val user: User? = null,
     val draft: ReportDraft = ReportDraft(),
     val mapFilters: ReportFilters = ReportFilters(),
@@ -46,6 +46,11 @@ data class AppUiState(
     val contentLoadError: String? = null,
     val myReportsLoadState: ContentLoadState = ContentLoadState.Ready,
     val myReportsLoadError: String? = null,
+    val detailError: String? = null,
+    val nextCursor: String? = null,
+    val isLoadingMore: Boolean = false,
+    val paginationError: String? = null,
+    val isReadingPhoto: Boolean = false,
     val isSubmitting: Boolean = false,
     val isAuthenticating: Boolean = false,
     val isRestoringSession: Boolean = true,
@@ -59,7 +64,7 @@ data class AppUiState(
     val visibleReports: List<Report>
         get() {
             val normalized = mapFilters.query.trim().lowercase()
-            return reports.filter { report ->
+            return ownedReports.filter { report ->
                 (mapFilters.status == null || report.status == mapFilters.status) &&
                     (mapFilters.categoryId == null || report.category.id == mapFilters.categoryId) &&
                     (normalized.isBlank() || listOf(
@@ -83,7 +88,7 @@ class AppViewModel(
 ) : ViewModel() {
     private val _uiState = MutableStateFlow(
         AppUiState(
-            reports = reportRepository.initialReports,
+            reports = emptyList(),
             categories = reportRepository.initialCategories,
             contentLoadState = if (reportRepository.initialCategories.isEmpty()) {
                 ContentLoadState.Loading
@@ -94,6 +99,11 @@ class AppViewModel(
     )
     val uiState: StateFlow<AppUiState> = _uiState.asStateFlow()
     private var submissionGeneration = 0L
+    private var sessionGeneration = 0L
+    private var listGeneration = 0L
+    private var detailGeneration = 0L
+    private var photoGeneration = 0L
+    private val seenCursors = mutableSetOf<String>()
 
     init {
         restoreSession()
@@ -121,8 +131,11 @@ class AppViewModel(
             _uiState.update { it.copy(dialog = AppDialog.DiscardDraft(destination)) }
             return
         }
+        if (destination !is AppDestination.ReportDetail) detailGeneration++
         _uiState.update {
             it.copy(
+                reports = if (destination is AppDestination.ReportDetail) it.reports else it.reports.map { report -> report.copy(imageBytes = null) },
+                detailError = null,
                 destination = destination,
                 backStack = when {
                     replace -> it.backStack
@@ -220,7 +233,7 @@ class AppViewModel(
 
     fun submitReport() {
         val state = _uiState.value
-        if (state.isSubmitting) return
+        if (state.isSubmitting || state.isReadingPhoto) return
         if (!state.draft.canSubmit) {
             _uiState.update { it.copy(formError = "Completá el título, la categoría y la ubicación.") }
             return
@@ -267,7 +280,8 @@ class AppViewModel(
                 point = submittedDraft.point,
                 createdAtLabel = "hace un momento",
                 ownerId = submittedUser.id,
-                hasPhoto = submittedDraft.hasPhoto,
+                hasPhoto = submittedDraft.photo != null,
+                photo = submittedDraft.photo,
                 history = listOf(
                     StatusEvent(
                         status = ReportStatus.Pending,
@@ -297,15 +311,7 @@ class AppViewModel(
             } catch (error: Throwable) {
                 if (submissionId == submissionGeneration) {
                     if (error.isUnauthorized()) {
-                        _uiState.update {
-                            it.copy(
-                                user = null,
-                                destination = AppDestination.Login(AppDestination.CreateReport),
-                                backStack = emptyList(),
-                                isSubmitting = false,
-                                authError = "La sesión venció. Iniciá sesión nuevamente; el borrador se conservó.",
-                            )
-                        }
+                        expireSession(preserveDraft = true)
                     } else {
                         _uiState.update {
                             it.copy(
@@ -370,24 +376,18 @@ class AppViewModel(
     }
 
     private fun finishAuthentication(user: User) {
+        sessionGeneration++
         val current = _uiState.value.destination
         val target = when (current) {
             is AppDestination.Login -> current.returnTo
             is AppDestination.Register -> current.returnTo
             else -> AppDestination.Map
         }
-        _uiState.update {
-            it.copy(
-                user = user,
-                destination = target,
-                backStack = emptyList(),
-                message = "Sesión iniciada.",
-                authError = null,
-                isAuthenticating = false,
-                isRestoringSession = false,
-            )
-        }
-        refreshPublicContent()
+        val draft = if (_uiState.value.user == null && target == AppDestination.CreateReport) _uiState.value.draft else ReportDraft()
+        _uiState.value = AppUiState(
+            user = user, destination = target, draft = draft,
+            isRestoringSession = false, message = "Sesión iniciada.",
+        )
         refreshMyReports()
     }
 
@@ -396,36 +396,60 @@ class AppViewModel(
         submissionGeneration++
         _uiState.update { it.copy(isAuthenticating = true) }
         viewModelScope.launch {
-            runCatching { authRepository.logout() }
+            try { authRepository.logout() }
+            catch (error: CancellationException) { throw error }
+            catch (_: Throwable) { authRepository.clearSession() }
             clearLocalSession("Sesión cerrada.")
         }
     }
 
     private fun clearLocalSession(message: String) {
+        sessionGeneration++
+        listGeneration++
+        detailGeneration++
+        photoGeneration++
+        submissionGeneration++
+        seenCursors.clear()
+        _uiState.value = AppUiState(isRestoringSession = false, message = message)
+    }
+
+    private suspend fun expireSession(preserveDraft: Boolean = false) {
+        val draft = if (preserveDraft) _uiState.value.draft else ReportDraft()
+        authRepository.clearSession()
+        clearLocalSession("La sesión venció. Iniciá sesión nuevamente.")
+        _uiState.update { it.copy(
+            draft = draft,
+            destination = AppDestination.Login(if (preserveDraft) AppDestination.CreateReport else AppDestination.Map),
+            authError = if (preserveDraft) "La sesión venció. Iniciá sesión nuevamente; el borrador se conservó." else "La sesión venció. Iniciá sesión nuevamente.",
+        ) }
+    }
+
+    fun setPhoto(hasPhoto: Boolean, issue: PhotoIssue? = null) {
+        photoGeneration++
         _uiState.update {
-            it.copy(
-                user = null,
-                destination = AppDestination.Login(AppDestination.Map),
-                backStack = emptyList(),
-                draft = ReportDraft(),
-                myReportsFilters = ReportFilters(),
-                authError = null,
-                formError = null,
-                isSubmitting = false,
-                isAuthenticating = false,
-                isRestoringSession = false,
-                message = message,
-                dialog = null,
+            if (it.isSubmitting) it.copy(dialog = null) else it.copy(
+                draft = it.draft.copy(hasPhoto = hasPhoto && it.draft.photo != null, photo = if (hasPhoto) it.draft.photo else null, photoIssue = issue),
+                isReadingPhoto = false, dialog = null, formError = null,
             )
         }
     }
 
-    fun setPhoto(hasPhoto: Boolean, issue: PhotoIssue? = null) = _uiState.update {
-        if (it.isSubmitting) it.copy(dialog = null) else it.copy(
-            draft = it.draft.copy(hasPhoto = hasPhoto, photoIssue = issue),
-            dialog = null,
-            formError = null,
-        )
+    fun attachPhoto(uri: String) {
+        if (_uiState.value.user == null || _uiState.value.isSubmitting) return
+        val generation = ++photoGeneration
+        val session = sessionGeneration
+        _uiState.update { it.copy(isReadingPhoto = true, dialog = null) }
+        viewModelScope.launch {
+            try {
+                val photo = AppContainer.photoRepository.read(uri)
+                if (generation != photoGeneration || session != sessionGeneration) return@launch
+                _uiState.update { it.copy(isReadingPhoto = false, draft = it.draft.copy(photo = photo, hasPhoto = true, photoIssue = null)) }
+            } catch (error: CancellationException) { throw error
+            } catch (error: Throwable) {
+                if (generation != photoGeneration || session != sessionGeneration) return@launch
+                _uiState.update { it.copy(isReadingPhoto = false, draft = it.draft.copy(photoIssue = (error as? PhotoReadException)?.issue ?: PhotoIssue.PermissionDenied)) }
+            }
+        }
     }
 
     fun simulateContentError() = _uiState.update {
@@ -439,7 +463,6 @@ class AppViewModel(
     }
 
     fun retryContent() {
-        refreshPublicContent()
         refreshMyReports()
     }
 
@@ -453,16 +476,7 @@ class AppViewModel(
 
     fun simulateSessionExpiry() {
         submissionGeneration++
-        _uiState.update {
-            it.copy(
-                user = null,
-                destination = AppDestination.Login(AppDestination.CreateReport),
-                backStack = emptyList(),
-                dialog = null,
-                authError = "La sesión venció. Iniciá sesión nuevamente; el borrador se conservó.",
-                isSubmitting = false,
-            )
-        }
+        viewModelScope.launch { expireSession(preserveDraft = _uiState.value.destination == AppDestination.CreateReport) }
     }
 
     fun focusReportOnMap(report: Report) = _uiState.update {
@@ -475,151 +489,97 @@ class AppViewModel(
         )
     }
 
-    private fun refreshPublicContent() {
-        if (_uiState.value.user == null) return
-        _uiState.update {
-            it.copy(
-                contentLoadState = ContentLoadState.Loading,
-                contentLoadError = null,
-            )
-        }
-        viewModelScope.launch {
-            try {
-                val categories = reportRepository.getCategories()
-                val reports = reportRepository.getPublicReports(categories)
-                _uiState.update {
-                    val accountReports = it.reports.filter { report -> report.ownerId != null }
-                    it.copy(
-                        categories = categories,
-                        reports = accountReports + reports.filterNot { publicReport ->
-                            accountReports.any { account -> account.id == publicReport.id }
-                        },
-                        contentLoadState = ContentLoadState.Ready,
-                        contentLoadError = null,
-                    )
-                }
-            } catch (error: CancellationException) {
-                throw error
-            } catch (error: Throwable) {
-                _uiState.update {
-                    it.copy(
-                        contentLoadState = ContentLoadState.Error,
-                        contentLoadError = error.userFacingMessage("No pudimos cargar el mapa."),
-                    )
-                }
-            }
-        }
-    }
-
     private fun restoreSession() {
+        val generation = sessionGeneration
         viewModelScope.launch {
             try {
-                val restoredUser = authRepository.restoreSession()
-                if (restoredUser == null) {
-                    _uiState.update {
-                        it.copy(
-                            destination = AppDestination.Login(AppDestination.Map),
-                            isRestoringSession = false,
-                        )
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            user = restoredUser,
-                            destination = AppDestination.Map,
-                            backStack = emptyList(),
-                            isRestoringSession = false,
-                            authError = null,
-                        )
-                    }
-                    refreshPublicContent()
-                    refreshMyReports()
-                }
-            } catch (error: CancellationException) {
-                throw error
+                val user = authRepository.restoreSession()
+                if (generation != sessionGeneration || _uiState.value.isAuthenticating) return@launch
+                if (user == null) _uiState.update { it.copy(isRestoringSession = false) }
+                else finishAuthentication(user)
+            } catch (error: CancellationException) { throw error
             } catch (error: Throwable) {
-                _uiState.update {
-                    it.copy(
-                        destination = AppDestination.Login(AppDestination.Map),
-                        isRestoringSession = false,
-                        authError = error.userFacingMessage("No pudimos validar la sesión guardada. Iniciá sesión nuevamente."),
-                    )
+                if (generation == sessionGeneration) {
+                    authRepository.clearSession()
+                    clearLocalSession("No pudimos validar la sesión guardada. Iniciá sesión nuevamente.")
                 }
             }
         }
     }
 
-    private fun refreshMyReports() {
-        val user = _uiState.value.user ?: return
-        _uiState.update {
-            it.copy(
-                myReportsLoadState = ContentLoadState.Loading,
-                myReportsLoadError = null,
-            )
-        }
+    private fun refreshMyReports() = loadReports(append = false)
+    fun loadMoreReports() = loadReports(append = true)
+
+    private fun loadReports(append: Boolean) {
+        val state = _uiState.value
+        val user = state.user ?: return
+        if (append && (state.nextCursor == null || state.isLoadingMore || state.myReportsLoadState == ContentLoadState.Loading)) return
+        val cursor = if (append) state.nextCursor else null
+        val session = sessionGeneration
+        val request = ++listGeneration
+        if (!append) seenCursors.clear()
+        _uiState.update { it.copy(
+            isLoadingMore = append, paginationError = null,
+            myReportsLoadState = if (append) it.myReportsLoadState else ContentLoadState.Loading,
+            contentLoadState = if (append) it.contentLoadState else ContentLoadState.Loading,
+            myReportsLoadError = null, contentLoadError = null,
+        ) }
         viewModelScope.launch {
             try {
-                val current = _uiState.value
-                val reports = reportRepository.getCurrentUserReports(user.id, current.categories)
-                _uiState.update {
-                    val foreignOrPublicReports = it.reports.filter { report -> report.ownerId != user.id }
-                    it.copy(
-                        reports = reports + foreignOrPublicReports.filterNot { existing ->
-                            reports.any { owned -> owned.id == existing.id }
-                        },
-                        myReportsLoadState = ContentLoadState.Ready,
-                        myReportsLoadError = null,
-                    )
-                }
-            } catch (error: CancellationException) {
-                throw error
+                val categories = if (append) state.categories else reportRepository.getCategories()
+                val page = reportRepository.getCurrentUserReports(user.id, categories, cursor)
+                if (session != sessionGeneration || request != listGeneration) return@launch
+                cursor?.let { seenCursors.add(it) }
+                val repeated = page.nextCursor != null && page.nextCursor in seenCursors
+                _uiState.update { it.copy(
+                    categories = categories,
+                    reports = ((if (append) it.reports else emptyList()) + page.items.filter { report -> report.ownerId == user.id }).distinctBy { report -> report.id },
+                    nextCursor = if (repeated) null else page.nextCursor,
+                    isLoadingMore = false,
+                    paginationError = if (repeated) "El servidor repitió una página. Actualizá tus reportes." else null,
+                    myReportsLoadState = ContentLoadState.Ready, contentLoadState = ContentLoadState.Ready,
+                ) }
+            } catch (error: CancellationException) { throw error
             } catch (error: Throwable) {
-                if (error.isUnauthorized()) {
-                    _uiState.update {
-                        it.copy(
-                            user = null,
-                            destination = AppDestination.Login(AppDestination.MyReports),
-                            backStack = emptyList(),
-                            myReportsLoadState = ContentLoadState.Ready,
-                            myReportsLoadError = null,
-                            authError = "La sesión venció. Iniciá sesión nuevamente.",
-                            isRestoringSession = false,
-                        )
-                    }
-                } else {
-                    _uiState.update {
-                        it.copy(
-                            myReportsLoadState = ContentLoadState.Error,
-                            myReportsLoadError = error.userFacingMessage("No pudimos cargar tus reportes."),
-                        )
-                    }
-                }
+                if (session != sessionGeneration || request != listGeneration) return@launch
+                if (error.isUnauthorized()) expireSession()
+                else _uiState.update { it.copy(
+                    isLoadingMore = false,
+                    paginationError = if (append) error.userFacingMessage("No pudimos cargar más reportes.") else null,
+                    myReportsLoadState = if (append) it.myReportsLoadState else ContentLoadState.Error,
+                    contentLoadState = if (append) it.contentLoadState else ContentLoadState.Error,
+                    myReportsLoadError = error.userFacingMessage("No pudimos cargar tus reportes."),
+                    contentLoadError = error.userFacingMessage("No pudimos cargar tus reportes."),
+                ) }
             }
         }
     }
 
     private fun refreshReportDetail(reportId: String) {
+        val user = _uiState.value.user ?: return
+        val session = sessionGeneration
+        val request = ++detailGeneration
         viewModelScope.launch {
+            var loadingImage = false
             try {
-                val current = _uiState.value
-                val detail = reportRepository.getPublicReport(reportId, current.categories)
-                val existing = current.report(reportId)
-                val merged = if (existing == null) {
-                    detail
-                } else {
-                    detail.copy(
-                        ownerId = existing.ownerId,
-                    )
+                val detail = reportRepository.getCurrentUserReport(reportId, user.id, _uiState.value.categories)
+                if (session != sessionGeneration || request != detailGeneration) return@launch
+                _uiState.update { it.copy(reports = it.reports.filterNot { report -> report.id == reportId }.map { report -> report.copy(imageBytes = null) } + detail) }
+                if (detail.hasPhoto) {
+                    loadingImage = true
+                    val image = reportRepository.getCurrentUserReportImage(reportId)
+                    require(image.size <= 5 * 1024 * 1024) { "La foto supera el tamaño permitido." }
+                    if (session != sessionGeneration || request != detailGeneration) return@launch
+                    _uiState.update { it.copy(reports = it.reports.map { report -> if (report.id == reportId) report.copy(imageBytes = image) else report }) }
                 }
-                _uiState.update {
-                    it.copy(reports = it.reports.map { report -> if (report.id == reportId) merged else report })
-                }
-            } catch (error: CancellationException) {
-                throw error
+            } catch (error: CancellationException) { throw error
             } catch (error: Throwable) {
-                _uiState.update {
-                    it.copy(message = error.userFacingMessage("No pudimos actualizar el detalle del reporte."))
-                }
+                if (session != sessionGeneration || request != detailGeneration) return@launch
+                if (error.isUnauthorized()) expireSession()
+                else _uiState.update { it.copy(
+                    reports = if (!loadingImage && (error as? ApiException)?.statusCode == 404) it.reports.filterNot { report -> report.id == reportId } else it.reports,
+                    detailError = error.userFacingMessage("No pudimos actualizar el detalle o cargar la fotografía. Los datos pueden estar desactualizados."),
+                ) }
             }
         }
     }
@@ -631,6 +591,7 @@ class AppViewModel(
     fun notify(message: String) = _uiState.update { it.copy(message = message) }
 
     fun discardDraftAndContinue() {
+        photoGeneration++
         val target = (_uiState.value.dialog as? AppDialog.DiscardDraft)?.target ?: AppDestination.Map
         _uiState.update {
             it.copy(
@@ -664,6 +625,7 @@ class AppViewModel(
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Throwable) {
+                if (error.isUnauthorized()) { expireSession(); return@launch }
                 _uiState.update {
                     it.copy(
                         isAuthenticating = false,

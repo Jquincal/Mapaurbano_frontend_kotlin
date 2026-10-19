@@ -91,6 +91,7 @@ dependencies {
   debugImplementation(libs.androidx.compose.ui.test.manifest)
 
   // Local tests: jUnit, coroutines, Android runner
+  testImplementation("io.ktor:ktor-client-mock:${libs.versions.ktor.get()}")
   testImplementation(libs.junit)
   testImplementation(libs.kotlinx.coroutines.test)
   implementation(libs.kotlinx.coroutines.android)

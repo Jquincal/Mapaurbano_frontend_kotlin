@@ -39,6 +39,8 @@ data class Report(
     val ownerId: String? = null,
     val hasPhoto: Boolean = false,
     val history: List<StatusEvent> = emptyList(),
+    val photo: PhotoAttachment? = null,
+    val imageBytes: ByteArray? = null,
 )
 
 data class StatusEvent(
@@ -56,6 +58,7 @@ data class ReportDraft(
     val point: MapPoint = DefaultDraftPoint,
     val hasPhoto: Boolean = false,
     val photoIssue: PhotoIssue? = null,
+    val photo: PhotoAttachment? = null,
 ) {
     val isDirty: Boolean
         get() = title.isNotBlank() ||
@@ -67,7 +70,7 @@ data class ReportDraft(
             point != DefaultDraftPoint
 
     val canSubmit: Boolean
-        get() = title.trim().length >= 5 && categoryId != null && location.isNotBlank()
+        get() = title.trim().length in 5..150 && categoryId != null && location.isNotBlank() && photoIssue == null && point.latitude.isFinite() && point.longitude.isFinite() && point.latitude in -90.0..90.0 && point.longitude in -180.0..180.0
 }
 
 val DefaultDraftPoint = MapPoint(
@@ -90,6 +93,11 @@ enum class ContentLoadState { Ready, Loading, Error }
 
 enum class PhotoIssue(val message: String) {
     InvalidType("El archivo debe ser JPG, PNG o WebP."),
+    InvalidDimensions("La foto no debe superar 12000 píxeles por lado."),
     TooLarge("La foto supera el máximo de 5 MB."),
-    PermissionDenied("No se concedió acceso a la cámara. Podés elegir un archivo de ejemplo."),
+    PermissionDenied("No pudimos acceder a la foto. Volvé a elegirla o usá la cámara."),
 }
+
+/** Adjunto temporal: nunca se persiste ni se comparte entre sesiones. */
+data class PhotoAttachment(val uri: String, val mimeType: String, val bytes: ByteArray)
+data class ReportPage(val items: List<Report>, val nextCursor: String?)

@@ -41,3 +41,7 @@ El informe de cobertura se genera en `app/build/reports/jacoco/jacocoDebugReport
 - Cubrir carga, éxito, vacío y error cuando una pantalla obtenga datos remotos.
 - Ejecutar pruebas de permisos, cámara, ubicación y edge-to-edge en emulador o dispositivo.
 - No usar el backend real en pruebas de UI; reemplazarlo mediante el repositorio.
+
+## Última ejecución local
+
+El 18/10/2026 pasó la validación completa con 21 pruebas. La evidencia y las comprobaciones pendientes en dispositivo están en [validacion-integracion-2026-10-18.md](validacion-integracion-2026-10-18.md).

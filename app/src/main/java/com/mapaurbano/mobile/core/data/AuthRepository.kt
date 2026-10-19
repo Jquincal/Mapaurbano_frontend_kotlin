@@ -8,6 +8,7 @@ interface AuthRepository {
     suspend fun restoreSession(): User?
     suspend fun login(dni: String, password: String): User
     suspend fun register(displayName: String, dni: String, password: String): User
+    suspend fun clearSession() = logout()
     suspend fun logout()
     suspend fun deactivateAccount()
 }
@@ -26,6 +27,8 @@ class RemoteAuthRepository(
         api.register(displayName, dni, password)
         return api.getCurrentUser().toModel()
     }
+
+    override suspend fun clearSession() = api.clearLocalSession()
 
     override suspend fun logout() = api.logout()
 

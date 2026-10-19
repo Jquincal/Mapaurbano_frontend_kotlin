@@ -10,6 +10,7 @@ import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.setMain
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -112,7 +113,7 @@ class AppViewModelTest {
 
         val state = viewModel.uiState.value
         assertTrue(state.destination is AppDestination.Login)
-        assertEquals(initialCount, state.reports.size)
+        assertEquals(0, state.reports.size)
         assertEquals("Semáforo intermitente", state.draft.title)
     }
 
@@ -168,13 +169,131 @@ class AppViewModelTest {
         assertTrue(state.destination is AppDestination.CreateReport)
     }
 
+    @Test
+    fun paginationUsesOpaqueCursorAndDeduplicates() = runTest(dispatcher) {
+        val template = DemoContent.reports.first().copy(ownerId = "user-1")
+        val cursors = mutableListOf<String?>()
+        val repository = object : ReportRepository by FakeReportRepository() {
+            override suspend fun getCurrentUserReports(userId: String, categories: List<com.mapaurbano.mobile.core.model.Category>, cursor: String?): com.mapaurbano.mobile.core.model.ReportPage {
+                cursors += cursor
+                return if (cursor == null) com.mapaurbano.mobile.core.model.ReportPage(listOf(template), "opaque/+== cursor")
+                else com.mapaurbano.mobile.core.model.ReportPage(listOf(template, template.copy(id = "second")), null)
+            }
+        }
+        val vm = AppViewModel(repository, authRepository)
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.reports.isEmpty())
+        assertTrue(cursors.isEmpty())
+        vm.login("30123456", "password123")
+        advanceUntilIdle()
+        vm.loadMoreReports()
+        advanceUntilIdle()
+        vm.loadMoreReports()
+        advanceUntilIdle()
+        assertEquals(listOf(null, "opaque/+== cursor"), cursors)
+        assertEquals(2, vm.uiState.value.reports.size)
+        assertEquals(null, vm.uiState.value.nextCursor)
+    }
+
+    @Test
+    fun staleResponseCannotRepopulateLoggedOutSession() = runTest(dispatcher) {
+        val response = kotlinx.coroutines.CompletableDeferred<com.mapaurbano.mobile.core.model.ReportPage>()
+        val repository = object : ReportRepository by FakeReportRepository() {
+            override suspend fun getCurrentUserReports(userId: String, categories: List<com.mapaurbano.mobile.core.model.Category>, cursor: String?) = response.await()
+        }
+        val vm = AppViewModel(repository, authRepository)
+        advanceUntilIdle()
+        vm.login("30123456", "password123")
+        runCurrent()
+        vm.setQuery("dato privado")
+        vm.logout()
+        runCurrent()
+        response.complete(com.mapaurbano.mobile.core.model.ReportPage(listOf(DemoContent.reports.first().copy(ownerId = "user-1")), null))
+        advanceUntilIdle()
+        assertEquals(null, vm.uiState.value.user)
+        assertTrue(vm.uiState.value.reports.isEmpty())
+        assertEquals("", vm.uiState.value.mapFilters.query)
+        assertTrue(vm.uiState.value.backStack.isEmpty())
+    }
+
+    @Test
+    fun unauthorizedListDetailImageAndCreateClearAllPrivateState() = runTest(dispatcher) {
+        for (operation in listOf("list", "detail", "image", "create")) {
+            val own = DemoContent.reports.first().copy(id = "own", ownerId = "user-1", hasPhoto = true)
+            val repository = object : ReportRepository by FakeReportRepository(listOf(own)) {
+                override suspend fun getCurrentUserReports(userId: String, categories: List<com.mapaurbano.mobile.core.model.Category>, cursor: String?): com.mapaurbano.mobile.core.model.ReportPage {
+                    if (operation == "list") throw ApiException(401, "Sesión vencida")
+                    return com.mapaurbano.mobile.core.model.ReportPage(listOf(own), null)
+                }
+                override suspend fun getCurrentUserReport(id: String, userId: String, categories: List<com.mapaurbano.mobile.core.model.Category>): Report {
+                    if (operation == "detail") throw ApiException(401, "Sesión vencida")
+                    return own
+                }
+                override suspend fun getCurrentUserReportImage(id: String): ByteArray = throw ApiException(401, "Sesión vencida")
+                override suspend fun createReport(report: Report): Report = throw ApiException(401, "Sesión vencida")
+            }
+            val vm = AppViewModel(repository, FakeAuthRepository())
+            advanceUntilIdle()
+            vm.login("30123456", "password123")
+            advanceUntilIdle()
+            if (operation in listOf("detail", "image")) vm.navigate(AppDestination.ReportDetail("own"))
+            if (operation == "create") {
+                vm.navigate(AppDestination.CreateReport)
+                vm.updateDraft { it.copy(title = "Borrador privado", categoryId = vm.uiState.value.categories.first().id) }
+                vm.submitReport()
+            }
+            advanceUntilIdle()
+            assertEquals(operation, null, vm.uiState.value.user)
+            assertTrue(operation, vm.uiState.value.reports.isEmpty())
+            assertTrue(operation, vm.uiState.value.backStack.isEmpty())
+            assertTrue(operation, vm.uiState.value.destination is AppDestination.Login)
+            assertEquals(operation, if (operation == "create") "Borrador privado" else "", vm.uiState.value.draft.title)
+        }
+    }
+
+    @Test
+    fun invalidPhotoPreventsCreationAndPreservesFields() = runTest(dispatcher) {
+        val vm = AppViewModel(FakeReportRepository(), authRepository)
+        advanceUntilIdle()
+        vm.login("30123456", "password123")
+        advanceUntilIdle()
+        vm.navigate(AppDestination.CreateReport)
+        vm.updateDraft { it.copy(title = "Bache peligroso", categoryId = vm.uiState.value.categories.first().id) }
+        vm.setPhoto(false, com.mapaurbano.mobile.core.model.PhotoIssue.TooLarge)
+        vm.submitReport()
+        advanceUntilIdle()
+        assertEquals("Bache peligroso", vm.uiState.value.draft.title)
+        assertTrue(vm.uiState.value.destination is AppDestination.CreateReport)
+        assertEquals(null, vm.uiState.value.createdReportId)
+    }
+
+    @Test
+    fun switchingAccountsNeverKeepsPreviousReportsOrFilters() = runTest(dispatcher) {
+        val template = DemoContent.reports.first()
+        val vm = AppViewModel(FakeReportRepository(listOf(template.copy(id = "A", ownerId = "user-1"), template.copy(id = "B", ownerId = "user-2"))), authRepository)
+        advanceUntilIdle()
+        vm.login("30123456", "password123")
+        advanceUntilIdle()
+        assertEquals(listOf("A"), vm.uiState.value.reports.map { it.id })
+        vm.setQuery("privado de A")
+        vm.selectReportOnMap(vm.uiState.value.reports.first())
+        vm.logout()
+        advanceUntilIdle()
+        assertTrue(vm.uiState.value.reports.isEmpty())
+        assertEquals(null, vm.uiState.value.selectedReportId)
+        vm.login("30234567", "password123")
+        advanceUntilIdle()
+        assertEquals(listOf("B"), vm.uiState.value.visibleReports.map { it.id })
+        assertEquals("", vm.uiState.value.mapFilters.query)
+    }
+
     private class FakeAuthRepository : AuthRepository {
         private var user: User? = null
 
         override suspend fun restoreSession(): User? = user
 
         override suspend fun login(dni: String, password: String): User =
-            User(id = "user-1", displayName = "Vecina", dni = dni.filter(Char::isDigit)).also { user = it }
+            User(id = if (dni == "30123456") "user-1" else "user-2", displayName = "Vecina", dni = dni.filter(Char::isDigit)).also { user = it }
 
         override suspend fun register(displayName: String, dni: String, password: String): User =
             User(id = "user-1", displayName = displayName, dni = dni.filter(Char::isDigit)).also { user = it }

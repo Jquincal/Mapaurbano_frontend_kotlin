@@ -2,44 +2,32 @@ package com.mapaurbano.mobile.core.data
 
 import com.mapaurbano.mobile.core.model.Category
 import com.mapaurbano.mobile.core.model.Report
+import com.mapaurbano.mobile.core.model.ReportPage
+import com.mapaurbano.mobile.core.network.ApiException
 
 interface ReportRepository {
     val initialCategories: List<Category>
     val initialReports: List<Report>
-
     suspend fun getCategories(): List<Category>
-
-    suspend fun getPublicReports(categories: List<Category>): List<Report>
-
-    suspend fun getPublicReport(id: String, categories: List<Category>): Report
-
-    suspend fun getCurrentUserReports(userId: String, categories: List<Category>): List<Report>
-
+    suspend fun getCurrentUserReports(userId: String, categories: List<Category>, cursor: String? = null): ReportPage
+    suspend fun getCurrentUserReport(id: String, userId: String, categories: List<Category>): Report
+    suspend fun getCurrentUserReportImage(id: String): ByteArray
     suspend fun createReport(report: Report): Report
 }
 
-/** Repositorio determinista para pruebas y vistas previas sin conexión. */
-class FakeReportRepository(
-    reports: List<Report> = DemoContent.reports,
-    categories: List<Category> = DemoContent.categories,
-) : ReportRepository {
+/** Solo para pruebas y previews, nunca se inyecta en AppContainer. */
+class FakeReportRepository(reports: List<Report> = DemoContent.reports, categories: List<Category> = DemoContent.categories) : ReportRepository {
     private val storedReports = reports.toMutableList()
-
-    override val initialCategories: List<Category> = categories
-    override val initialReports: List<Report> = reports
-
-    override suspend fun getCategories(): List<Category> = initialCategories
-
-    override suspend fun getPublicReports(categories: List<Category>): List<Report> = storedReports.toList()
-
-    override suspend fun getPublicReport(id: String, categories: List<Category>): Report =
-        storedReports.first { it.id == id }
-
-    override suspend fun getCurrentUserReports(userId: String, categories: List<Category>): List<Report> =
-        storedReports.filter { it.ownerId == userId }
-
-    override suspend fun createReport(report: Report): Report {
-        storedReports.add(0, report)
-        return report
+    override val initialCategories = categories
+    override val initialReports = reports
+    override suspend fun getCategories() = initialCategories
+    override suspend fun getCurrentUserReports(userId: String, categories: List<Category>, cursor: String?): ReportPage {
+        val own = storedReports.filter { it.ownerId == userId }
+        val offset = cursor?.toIntOrNull() ?: 0
+        return ReportPage(own.drop(offset).take(50), (offset + 50).takeIf { it < own.size }?.toString())
     }
+    override suspend fun getCurrentUserReport(id: String, userId: String, categories: List<Category>) =
+        storedReports.firstOrNull { it.id == id && it.ownerId == userId } ?: throw ApiException(404, "Reporte no encontrado")
+    override suspend fun getCurrentUserReportImage(id: String) = storedReports.first { it.id == id }.imageBytes ?: byteArrayOf()
+    override suspend fun createReport(report: Report): Report = report.also { storedReports.add(0, it) }
 }
