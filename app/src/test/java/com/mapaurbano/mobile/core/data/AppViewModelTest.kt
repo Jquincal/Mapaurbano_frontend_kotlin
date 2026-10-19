@@ -287,6 +287,48 @@ class AppViewModelTest {
         assertEquals("", vm.uiState.value.mapFilters.query)
     }
 
+    @Test
+    fun logoutErasesPrivateDataBeforeTheServerResponds() = runTest(dispatcher) {
+        val pendingLogout = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val auth = object : AuthRepository by authRepository {
+            override suspend fun logout() { pendingLogout.await() }
+        }
+        val own = DemoContent.reports.first().copy(ownerId = "user-1", imageBytes = byteArrayOf(1, 2))
+        val vm = AppViewModel(FakeReportRepository(listOf(own)), auth)
+        advanceUntilIdle()
+        vm.login("30123456", "password123")
+        advanceUntilIdle()
+        vm.selectReportOnMap(vm.uiState.value.reports.first())
+        vm.setQuery("privado")
+        vm.logout()
+        assertEquals(null, vm.uiState.value.user)
+        assertTrue(vm.uiState.value.reports.isEmpty())
+        assertEquals(null, vm.uiState.value.selectedReportId)
+        assertEquals("", vm.uiState.value.mapFilters.query)
+        assertTrue(vm.uiState.value.destination is AppDestination.Login)
+        pendingLogout.complete(Unit)
+        advanceUntilIdle()
+        assertTrue(!vm.uiState.value.isAuthenticating)
+    }
+
+    @Test
+    fun unresponsiveLogoutTimesOutAndClearsSavedSession() = runTest(dispatcher) {
+        var cleared = false
+        val auth = object : AuthRepository by authRepository {
+            override suspend fun logout(): Unit = kotlinx.coroutines.awaitCancellation()
+            override suspend fun clearSession() { cleared = true }
+        }
+        val vm = AppViewModel(FakeReportRepository(), auth)
+        advanceUntilIdle()
+        vm.login("30123456", "password123")
+        advanceUntilIdle()
+        vm.logout()
+        advanceUntilIdle()
+        assertTrue(cleared)
+        assertTrue(vm.uiState.value.reports.isEmpty())
+        assertTrue(!vm.uiState.value.isAuthenticating)
+    }
+
     private class FakeAuthRepository : AuthRepository {
         private var user: User? = null
 

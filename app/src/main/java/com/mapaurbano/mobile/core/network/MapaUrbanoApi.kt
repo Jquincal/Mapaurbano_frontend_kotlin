@@ -78,11 +78,11 @@ class MapaUrbanoApi(
     }
 
     suspend fun logout() {
-        try {
-            val token = requireToken()
+        val token = sessionStore.readToken()
+        // Remove the saved credential before waiting for server revocation.
+        sessionStore.clearToken()
+        if (token != null) {
             client.post(url("users/logout")) { bearerAuth(token) }.ensureSuccessOrThrow()
-        } finally {
-            sessionStore.clearToken()
         }
     }
 

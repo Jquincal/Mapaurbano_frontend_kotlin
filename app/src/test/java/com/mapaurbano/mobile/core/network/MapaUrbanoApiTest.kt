@@ -92,4 +92,23 @@ class MapaUrbanoApiTest {
             assertEquals(null, store.token)
         } finally { client.close() }
     }
+    @Test
+    fun logoutDeletesSavedTokenBeforeTheNetworkRequest() = runTest {
+        val store = MemorySession()
+        val engine = MockEngine { request ->
+            assertEquals(null, store.token)
+            assertEquals(HttpMethod.Post, request.method)
+            assertEquals("/api/v1/users/logout", request.url.encodedPath)
+            assertEquals("Bearer private-token", request.headers[HttpHeaders.Authorization])
+            respond("", HttpStatusCode.InternalServerError)
+        }
+        val client = HttpClient(engine)
+        try {
+            val api = MapaUrbanoApi(store, "http://local/api/v1/", client)
+            try { api.logout(); fail("Debe informar el fallo del servidor") }
+            catch (error: ApiException) { assertEquals(500, error.statusCode) }
+            assertEquals(null, store.token)
+        } finally { client.close() }
+    }
+
 }

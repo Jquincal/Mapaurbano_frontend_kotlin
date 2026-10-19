@@ -17,7 +17,7 @@ Las lecturas públicas de reportes fueron retiradas. La app carga únicamente lo
 
 ## Sesiones
 
-El token se conserva en DataStore. La restauración ocurre antes de entrar al mapa. Logout, desactivación y 401 eliminan reportes, imágenes, filtros, navegación y borrador. Se conserva el borrador únicamente cuando vence la sesión durante el envío. Las respuestas tardías se descartan al cambiar o cerrar sesión. Al autenticarse comienza un estado privado nuevo.
+El token se conserva en DataStore. La restauración ocurre antes de entrar al mapa. Logout, desactivación y 401 eliminan reportes, imágenes, filtros, navegación y borrador. Al cerrar sesión se borra el estado privado inmediatamente y se elimina el token guardado antes de pedir su revocación al servidor; esa solicitud tiene un límite de 10 segundos. Se conserva el borrador únicamente cuando vence la sesión durante el envío. Las respuestas tardías se descartan al cambiar o cerrar sesión. Al autenticarse comienza un estado privado nuevo.
 
 ## Lista, detalle y fotografías
 

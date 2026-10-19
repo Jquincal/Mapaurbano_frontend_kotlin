@@ -15,6 +15,9 @@ import com.mapaurbano.mobile.core.model.StatusEvent
 import com.mapaurbano.mobile.core.model.User
 import com.mapaurbano.mobile.core.network.ApiException
 import com.mapaurbano.mobile.core.navigation.AppDestination
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -393,13 +396,25 @@ class AppViewModel(
 
     fun logout() {
         if (_uiState.value.isAuthenticating) return
-        submissionGeneration++
+        // Hide private data and invalidate pending responses before any network I/O.
+        clearLocalSession("Sesión cerrada.")
         _uiState.update { it.copy(isAuthenticating = true) }
         viewModelScope.launch {
-            try { authRepository.logout() }
-            catch (error: CancellationException) { throw error }
-            catch (_: Throwable) { authRepository.clearSession() }
-            clearLocalSession("Sesión cerrada.")
+            try {
+                withTimeoutOrNull(10_000L) { authRepository.logout() }
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                // Local logout must also complete when the server is unreachable.
+            } finally {
+                withContext(NonCancellable) {
+                    try {
+                        authRepository.clearSession()
+                    } finally {
+                        _uiState.update { it.copy(isAuthenticating = false) }
+                    }
+                }
+            }
         }
     }
 
@@ -415,13 +430,18 @@ class AppViewModel(
 
     private suspend fun expireSession(preserveDraft: Boolean = false) {
         val draft = if (preserveDraft) _uiState.value.draft else ReportDraft()
-        authRepository.clearSession()
         clearLocalSession("La sesión venció. Iniciá sesión nuevamente.")
         _uiState.update { it.copy(
             draft = draft,
+            isAuthenticating = true,
             destination = AppDestination.Login(if (preserveDraft) AppDestination.CreateReport else AppDestination.Map),
             authError = if (preserveDraft) "La sesión venció. Iniciá sesión nuevamente; el borrador se conservó." else "La sesión venció. Iniciá sesión nuevamente.",
         ) }
+        try {
+            authRepository.clearSession()
+        } finally {
+            _uiState.update { it.copy(isAuthenticating = false) }
+        }
     }
 
     fun setPhoto(hasPhoto: Boolean, issue: PhotoIssue? = null) {
